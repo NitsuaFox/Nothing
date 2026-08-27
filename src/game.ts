@@ -90,6 +90,7 @@ export class Game {
   cycleStart = 0;
   period = 1.12;
   hitThisCycle = false;
+  cycleArmed = false;
   awaitingFirstPulse = true;
 
   timeSinceTap = 0;
@@ -152,21 +153,14 @@ export class Game {
     if (!this.started) {
       this.started = true;
       this.awaitingFirstPulse = false;
-      this.cycleStart = this.gameTime;
-      this.hitThisCycle = true;
       this.applyTap("perfect", 0, 0);
       log("first tap — universe begins");
-      this.beginNextCycle(0.12);
+      this.beginNextCycle(0.85);
       return;
     }
 
-    if (this.hitThisCycle) {
-      log("tap ignored — already hit this pulse");
-      return;
-    }
-
-    if (this.gameTime < this.cycleStart) {
-      log("tap ignored — between pulses");
+    if (!this.cycleArmed || this.hitThisCycle) {
+      log("tap ignored — pulse not open");
       return;
     }
 
@@ -185,12 +179,14 @@ export class Game {
 
     let kind: TapKind;
     if (progress <= KISS) {
-      if (gap <= PERFECT_GAP) kind = "perfect";
-      else if (gap <= GOOD_GAP) kind = "good";
-      else kind = "miss";
-    } else if (errorMs <= 100) {
+      if (gap > GOOD_GAP) {
+        log("tap ignored — ring still far", { gapPx: Number(gap.toFixed(1)) });
+        return;
+      }
+      kind = gap <= PERFECT_GAP ? "perfect" : "good";
+    } else if (errorMs <= 120) {
       kind = "perfect";
-    } else if (errorMs <= 200) {
+    } else if (errorMs <= 220) {
       kind = "good";
     } else {
       kind = "miss";
@@ -264,7 +260,7 @@ export class Game {
       ctx.stroke();
     }
 
-    if (this.started && !this.banging && !this.awaitingFirstPulse && this.gameTime >= this.cycleStart) {
+    if (this.started && !this.banging && this.cycleArmed && this.gameTime >= this.cycleStart) {
       const p = this.cycleProgress();
       const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
       const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
@@ -366,18 +362,30 @@ export class Game {
 
   private beginNextCycle(delay: number): void {
     this.cycleStart = this.gameTime + delay;
-    this.hitThisCycle = false;
+    this.hitThisCycle = true;
+    this.cycleArmed = false;
+    log("pulse queued", { delay });
   }
 
   private updatePulse(): void {
     if (!this.started || this.awaitingFirstPulse) return;
-    if (this.gameTime < this.cycleStart) return;
-    const progress = this.cycleProgress();
-    if (progress >= 1 && !this.hitThisCycle) {
+
+    if (!this.cycleArmed) {
+      if (this.gameTime >= this.cycleStart) {
+        this.cycleArmed = true;
+        this.cycleStart = this.gameTime;
+        this.hitThisCycle = false;
+        log("pulse armed");
+      }
+      return;
+    }
+
+    if (this.hitThisCycle) return;
+    if (this.cycleProgress() >= 1) {
       this.hitThisCycle = true;
       this.applyTap("miss", (1 - KISS) * this.period * 1000, 999);
       log("pulse timeout miss");
-      this.beginNextCycle(0.12);
+      this.beginNextCycle(0.2);
     }
   }
 
@@ -446,7 +454,8 @@ export class Game {
     this.started = true;
     this.awaitingFirstPulse = false;
     this.hitThisCycle = false;
-    this.cycleStart = this.gameTime + 0.25;
+    this.cycleArmed = false;
+    this.cycleStart = this.gameTime + 0.4;
     this.period = 1.12;
     this.timeSinceTap = 0;
     this.entropyActive = false;
