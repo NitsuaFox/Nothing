@@ -14,14 +14,7 @@ import {
 import { Particles } from "./particles";
 import { DISCOVERY_LABEL, loadFound, loadHidepth, loadHiscore, loadLives, loadRuns, saveFound, saveHidepth, saveHiscore, saveLives, saveRuns, type DiscoveryId } from "./progress";
 import { type Relic, type RelicId, modsFrom, rollDraft } from "./relics";
-import {
-  formatMul,
-  liveMultiplier,
-  nextRank,
-  rankFor,
-  rankJustHit,
-  scoreGain,
-} from "./scoring";
+import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
 import { Sky } from "./sky";
 import type { Phase, PulseKind } from "./types";
 import { submitScore } from "./wavedash";
@@ -96,10 +89,7 @@ export class Game {
   runsPlayed = loadRuns();
   scorePop = 0;
   lastGain = 0;
-  lastMath = "";
-  mathLife = 0;
-  lastRankName = "";
-  rankFlash = 0;
+  mulFlash = 0;
   pickFlash = 0;
 
   w = 1;
@@ -159,7 +149,39 @@ export class Game {
     this.h = h;
     this.cx = w / 2;
     this.cy = h / 2;
-    log("resize", { w, h, remnants: this.sky.remnants.length, found: this.found.size });
+    const hud = this.hudLayout();
+    log("resize", {
+      w,
+      h,
+      remnants: this.sky.remnants.length,
+      found: this.found.size,
+      score: { x: hud.scoreX, y: hud.scoreY },
+      combo: { x: hud.comboX, y: hud.comboY },
+      mass: { x: hud.massX, y: hud.massY, w: hud.massW },
+      draftWide: w >= 720,
+    });
+  }
+
+  private hudLayout() {
+    const pad = Math.max(28, Math.round(Math.min(this.w, this.h) * 0.045));
+    const massW = Math.min(Math.round(this.w * 0.32), 360);
+    return {
+      pad,
+      scoreX: pad,
+      scoreY: pad + 22,
+      bestY: pad + 58,
+      depthY: pad + 22,
+      whisperY: pad + 72,
+      hitY: this.cy - this.orbRadius() - 52,
+      comboX: pad,
+      comboY: this.h - pad - 70,
+      mulY: this.h - pad - 32,
+      massW,
+      massX: this.cx - massW / 2,
+      massY: this.h - pad - 10,
+      relicX: this.w - pad,
+      relicY: this.h - pad - 18,
+    };
   }
 
   muteRect(): { x: number; y: number; s: number } {
@@ -281,9 +303,6 @@ export class Game {
 
   update(dt: number): void {
     this.wallTime += dt;
-    const heat = Math.min(8, this.combo * 0.18 + this.perfectStreak * 0.12) + this.rankFlash * 5;
-    this.juice.rumble =
-      (this.phase === "giant" ? 1.6 : this.phase === "singularity" ? 2.4 : 0) + (this.mode === "play" ? heat : 0);
     const frozen = this.juice.hitstop > 0;
     this.juice.update(dt);
 
@@ -293,8 +312,7 @@ export class Game {
     this.whisperLife = Math.max(0, this.whisperLife - dt);
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
-    this.mathLife = Math.max(0, this.mathLife - dt);
-    this.rankFlash = Math.max(0, this.rankFlash - dt * 1.05);
+    this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);
     this.pickFlash = Math.max(0, this.pickFlash - dt * 1.7);
     this.squashX = lerp(this.squashX, 1, 1 - Math.pow(0.0002, dt));
     this.squashY = lerp(this.squashY, 1, 1 - Math.pow(0.0002, dt));
@@ -414,7 +432,7 @@ export class Game {
     const mods = this.mods();
     this.hitLabel = kind === "perfect" ? "PERFECT" : kind === "good" ? "GOOD" : "MISS";
     this.hitLabelLife = 1.5;
-    const prevCombo = this.combo;
+    const prevPerfect = this.perfectStreak;
 
     if (kind === "perfect") {
       this.combo += 1;
@@ -429,12 +447,12 @@ export class Game {
       this.particles.spawnBurst(this.cx, this.cy, 22 + Math.min(this.combo, 40), 280 + this.combo * 14, r);
       this.sky.plantBurst(this.w, this.h, this.cx, this.cy, this.perfectStreak % mods.resonanceEvery === 0 ? 3 : 1, 40 + this.combo * 3);
       this.comboPop = 1;
-      this.grantScore(12, prevCombo);
+      this.grantScore(12, prevPerfect);
       if (this.perfectStreak > 0 && this.perfectStreak % mods.resonanceEvery === 0) {
         this.hitLabel = "RESONANCE";
         this.mass += 0.6 * mods.hitMassMul;
         this.massCreated += 0.6;
-        this.grantScore(48, this.combo);
+        this.grantScore(48, this.perfectStreak);
         this.audio.resonance(this.combo);
         this.discover("resonance");
         log("resonance", { streak: this.perfectStreak, combo: this.combo });
@@ -452,7 +470,7 @@ export class Game {
       this.particles.spawnBurst(this.cx, this.cy, 14 + Math.min(this.combo, 16), 200 + this.combo * 6, r);
       this.sky.plantBurst(this.w, this.h, this.cx, this.cy, 1, 28);
       this.comboPop = 0.85;
-      this.grantScore(6, prevCombo);
+      this.grantScore(6, prevPerfect);
     } else {
       if (mods.missHalveCombo) this.combo = Math.floor(this.combo / 2);
       else this.combo = 0;
@@ -463,17 +481,16 @@ export class Game {
       this.squashY = 1.22;
       this.particles.vacuumToward(this.cx, this.cy, ["orbit"]);
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
-      this.lastMath = "";
       this.lastGain = 0;
     }
 
     const tempo = mods.tempoFromCombo ? lerp(1.18, 0.58, clamp(this.combo / 32, 0, 1)) : 1.05;
     this.period = (this.phase === "giant" ? tempo * 1.16 : tempo) * mods.periodMul;
-    this.juice.punch(kind, this.combo);
+    this.juice.punch(kind);
     this.audio.tap(kind, this.combo);
 
     log(
-      `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth} math=${this.lastMath}`,
+      `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} mul=${streakMul(this.perfectStreak)} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth}`,
     );
 
     if (kind === "miss") this.checkDeath("miss");
@@ -525,7 +542,6 @@ export class Game {
 
   private applySilence(): void {
     const mods = this.mods();
-    const prevCombo = this.combo;
     this.silences += 1;
     this.createMissStreak = 0;
     this.combo += mods.silenceCombo;
@@ -540,9 +556,15 @@ export class Game {
     this.sky.plantBurst(this.w, this.h, this.cx, this.cy, 2, 70);
     this.juice.silence();
     this.audio.silence();
-    this.grantScore(8 + mods.silenceCombo * 6, prevCombo);
+    this.grantScore(8 + mods.silenceCombo * 6, this.perfectStreak);
     this.discover("silence");
-    log("silence", { silences: this.silences, combo: this.combo, mass: Number(this.mass.toFixed(2)), score: this.score, math: this.lastMath });
+    log("silence", {
+      silences: this.silences,
+      combo: this.combo,
+      mul: streakMul(this.perfectStreak),
+      mass: Number(this.mass.toFixed(2)),
+      score: this.score,
+    });
     if (this.mass >= this.bangNeed() && !this.banging) this.startBang();
   }
 
@@ -619,7 +641,7 @@ export class Game {
     this.banging = true;
     this.bangT = 0;
     this.phase = "bang";
-    this.grantScore(Math.round(80 * mods.bangScoreMul + this.sky.born.length * 2 * mods.skyScoreMul), this.combo);
+    this.grantScore(Math.round(80 * mods.bangScoreMul + this.sky.born.length * 2 * mods.skyScoreMul), this.perfectStreak);
     this.bangScore = this.score;
     this.newBest = this.bangScore > this.best;
     this.universes += 1;
@@ -712,32 +734,40 @@ export class Game {
     return this.mods().bangMass + (this.depth - 1) * 3;
   }
 
-  private grantScore(base: number, prevCombo: number): number {
+  private grantScore(base: number, prevPerfect: number): number {
+    const relicMul = this.mods().scoreMul;
     const g = scoreGain({
       base,
       combo: Math.max(1, this.combo),
       perfectStreak: this.perfectStreak,
       depth: this.depth,
-      relicMul: this.mods().scoreMul,
+      relicMul,
     });
     this.score += g.gained;
     this.lastGain = g.gained;
-    this.lastMath = g.math;
-    this.mathLife = 1.4;
     this.scorePop = 1;
-    this.particles.spawnFloater(this.cx, this.cy - this.orbRadius() - 22, `+${g.gained}`, 30);
-    this.particles.spawnFloater(this.cx, this.cy - this.orbRadius() - 50, g.math, 13);
-    const rank = rankJustHit(prevCombo, this.combo);
-    if (rank) {
-      this.lastRankName = rank.name;
-      this.rankFlash = 1.4;
-      this.juice.rankHit(rank.shake);
+    const stepped = streakJustHit(prevPerfect, this.perfectStreak);
+    if (stepped) {
+      this.mulFlash = 1.15;
+      this.juice.streak();
       this.audio.rankUp();
-      this.particles.spawnBurst(this.cx, this.cy, rank.burst, 340 + rank.shake * 5, this.orbRadius());
-      this.particles.spawnFloater(this.cx, this.cy - this.orbRadius() - 88, rank.name, 40);
-      log("rank", { name: rank.name, combo: this.combo, pStreak: this.perfectStreak, gained: g.gained, math: g.math, score: this.score });
+      log("streak", {
+        mul: stepped,
+        perfects: this.perfectStreak,
+        combo: this.combo,
+        gained: g.gained,
+        score: this.score,
+      });
     } else {
-      log("score", { gained: g.gained, math: g.math, combo: this.combo, score: this.score });
+      log("score", {
+        base,
+        combo: this.combo,
+        streak: g.streak,
+        depth: this.depth,
+        relic: relicMul,
+        gained: g.gained,
+        score: this.score,
+      });
     }
     return g.gained;
   }
@@ -812,10 +842,7 @@ export class Game {
     this.particles.clear();
     this.juice.reset();
     this.lastGain = 0;
-    this.lastMath = "";
-    this.mathLife = 0;
-    this.rankFlash = 0;
-    this.lastRankName = "";
+    this.mulFlash = 0;
   }
 
   private openDraft(): void {
@@ -844,15 +871,26 @@ export class Game {
 
   private draftLayout(): { relic: Relic; x: number; y: number; w: number; h: number }[] {
     const n = Math.max(1, this.draft.length);
-    const gap = 14;
-    const side = 18;
-    const bottom = 26;
-    const cardW = Math.min(this.w - side * 2, 680);
-    const area = Math.min(this.h * 0.5, 430);
-    const cardH = Math.max(92, Math.min(124, (area - gap * (n - 1)) / n));
+    const pad = Math.max(24, Math.round(this.w * 0.045));
+    const wide = this.w >= 720;
+
+    if (wide) {
+      const gap = Math.max(18, Math.round(this.w * 0.018));
+      const cardW = Math.min(320, (this.w - pad * 2 - gap * (n - 1)) / n);
+      const cardH = Math.min(240, Math.max(150, this.h * 0.36));
+      const totalW = n * cardW + (n - 1) * gap;
+      const x0 = this.cx - totalW / 2;
+      const y = Math.max(this.h * 0.34, Math.min(this.h * 0.42, this.h - pad - cardH - 48));
+      return this.draft.map((relic, i) => ({ relic, x: x0 + i * (cardW + gap), y, w: cardW, h: cardH }));
+    }
+
+    const gap = 16;
+    const cardW = Math.min(this.w - pad * 2, 560);
+    const area = this.h * 0.52;
+    const cardH = Math.max(100, Math.min(140, (area - gap * (n - 1)) / n));
     const totalH = n * cardH + (n - 1) * gap;
     const x = this.cx - cardW / 2;
-    const y0 = Math.max(this.h * 0.38, this.h - bottom - totalH);
+    const y0 = Math.max(this.h * 0.32, this.h - pad - 40 - totalH);
     return this.draft.map((relic, i) => ({ relic, x, y: y0 + i * (cardH + gap), w: cardW, h: cardH }));
   }
 
@@ -861,53 +899,64 @@ export class Game {
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.fillRect(0, 0, this.w, this.h);
 
+    const cards = this.draftLayout();
+    const top = cards[0]?.y ?? this.h * 0.42;
+    const hintY = cards.length
+      ? Math.min(this.h - 28, cards[0].y + cards[0].h + 40)
+      : this.h - 28;
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.5;
     ctx.font = font(600, 14);
-    ctx.fillText(`DEPTH ${this.depth + 1}`, this.cx, 36);
+    ctx.fillText(`DEPTH ${this.depth + 1}`, this.cx, Math.max(36, top - 86));
     ctx.globalAlpha = 1;
-    ctx.font = font(700, 22);
-    ctx.fillText("TAKE ONE", this.cx, 64);
-    ctx.font = font(700, 44);
-    strokeText(ctx, String(this.score), this.cx, 108, 8);
-    if (this.lastMath) {
-      ctx.globalAlpha = 0.55;
-      ctx.font = font(500, 14);
-      ctx.fillText(this.lastMath, this.cx, 140);
-      ctx.globalAlpha = 1;
-    }
+    ctx.font = font(700, 28);
+    ctx.fillText("TAKE ONE", this.cx, Math.max(64, top - 52));
     ctx.globalAlpha = 0.45;
     ctx.font = font(500, 14);
-    ctx.fillText("TAP A CARD   ·   1  2  3", this.cx, 164);
+    ctx.fillText("TAP A CARD   ·   1  2  3", this.cx, hintY);
     ctx.globalAlpha = 1;
 
-    const cards = this.draftLayout();
+    const wide = this.w >= 720;
     cards.forEach((card, i) => {
       const hover = this.draftHover === i;
-      ctx.globalAlpha = hover ? 0.22 : 0.1;
+      ctx.globalAlpha = hover ? 0.18 : 0.08;
       ctx.fillStyle = "#fff";
       ctx.fillRect(card.x, card.y, card.w, card.h);
-      ctx.globalAlpha = hover ? 1 : 0.7;
+      ctx.globalAlpha = hover ? 1 : 0.65;
       ctx.strokeStyle = "#fff";
-      ctx.lineWidth = hover ? 3 : 1.5;
+      ctx.lineWidth = hover ? 2.5 : 1.4;
       ctx.strokeRect(card.x + 1, card.y + 1, card.w - 2, card.h - 2);
 
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.globalAlpha = hover ? 1 : 0.55;
-      ctx.font = font(700, 42);
       ctx.fillStyle = "#fff";
-      ctx.fillText(String(i + 1), card.x + 22, card.y + card.h / 2);
-
-      ctx.textAlign = "center";
-      ctx.globalAlpha = 1;
-      ctx.font = font(700, 22);
-      ctx.fillText(card.relic.name, this.cx, card.y + card.h * 0.38);
-      ctx.globalAlpha = 0.7;
-      ctx.font = font(500, 16);
-      ctx.fillText(card.relic.line, this.cx, card.y + card.h * 0.68);
+      if (wide) {
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.globalAlpha = hover ? 1 : 0.5;
+        ctx.font = font(700, 36);
+        ctx.fillText(String(i + 1), card.x + card.w / 2, card.y + card.h * 0.22);
+        ctx.globalAlpha = 1;
+        ctx.font = font(700, 22);
+        ctx.fillText(card.relic.name, card.x + card.w / 2, card.y + card.h * 0.5);
+        ctx.globalAlpha = 0.65;
+        ctx.font = font(500, 15);
+        ctx.fillText(card.relic.line, card.x + card.w / 2, card.y + card.h * 0.72);
+      } else {
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.globalAlpha = hover ? 1 : 0.5;
+        ctx.font = font(700, 42);
+        ctx.fillText(String(i + 1), card.x + 22, card.y + card.h / 2);
+        ctx.textAlign = "center";
+        ctx.globalAlpha = 1;
+        ctx.font = font(700, 22);
+        ctx.fillText(card.relic.name, this.cx, card.y + card.h * 0.38);
+        ctx.globalAlpha = 0.7;
+        ctx.font = font(500, 16);
+        ctx.fillText(card.relic.line, this.cx, card.y + card.h * 0.68);
+      }
       ctx.globalAlpha = 1;
     });
     ctx.restore();
@@ -919,20 +968,20 @@ export class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
     ctx.font = font(700, 72);
-    strokeText(ctx, String(this.score), this.cx, this.cy - 36, 10);
+    strokeText(ctx, String(this.score), this.cx, this.cy - 48, 10);
     ctx.font = font(600, 18);
     ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + 28);
-    ctx.globalAlpha = 0.5;
+    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + 24);
+    ctx.globalAlpha = 0.45;
     ctx.font = font(500, 16);
     ctx.fillText(this.newBest ? `DEPTH ${this.depth}   ·   BEST ${this.best}` : `BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + 56);
     if (this.relics.length > 0) {
       ctx.font = font(500, 14);
-      ctx.fillText(this.relics.slice(0, 8).join("  ·  "), this.cx, this.cy + 84);
+      ctx.fillText(this.relics.slice(0, 8).join("  ·  "), this.cx, this.cy + 92);
     }
     ctx.globalAlpha = 0.4;
     ctx.font = font(500, 16);
-    ctx.fillText("TAP  TO  BEGIN", this.cx, this.h - 40);
+    ctx.fillText("TAP  TO  BEGIN", this.cx, this.h - 48);
     ctx.restore();
   }
 
@@ -946,125 +995,105 @@ export class Game {
   }
 
   private drawHud(ctx: CanvasRenderingContext2D): void {
+    const hud = this.hudLayout();
     ctx.save();
-    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
 
     if (this.titleAlpha > 0.01 && !this.banging && !this.started) {
+      ctx.textAlign = "center";
       ctx.globalAlpha = this.titleAlpha;
       ctx.font = font(500, 18);
       ctx.fillText("N O T H I N G", this.cx, this.cy - 52);
       ctx.globalAlpha = 1;
     }
 
+    if (this.mode === "play" && this.started && !this.banging) {
+      ctx.textAlign = "left";
+      ctx.globalAlpha = 0.92;
+      ctx.font = font(800, 44);
+      strokeText(ctx, String(this.score), hud.scoreX, hud.scoreY, 8);
+      if (this.scorePop > 0.08 && this.lastGain > 0) {
+        ctx.globalAlpha = clamp(this.scorePop, 0, 0.85);
+        ctx.font = font(700, 18);
+        ctx.fillText(`+${this.lastGain}`, hud.scoreX, hud.bestY);
+      } else if (this.best > 0) {
+        ctx.globalAlpha = 0.4;
+        ctx.font = font(500, 14);
+        ctx.fillText(`best ${this.best}`, hud.scoreX, hud.bestY);
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.textAlign = "center";
+      ctx.globalAlpha = 0.45;
+      ctx.font = font(600, 14);
+      ctx.fillText(`DEPTH ${this.depth}`, this.cx, hud.depthY);
+      ctx.globalAlpha = 1;
+    }
+
     if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play") {
-      ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.75);
+      ctx.textAlign = "center";
+      ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7);
       ctx.font = font(600, 16);
-      ctx.fillText(this.whisper, this.cx, Math.max(92, this.cy - this.orbRadius() - 92));
+      ctx.fillText(this.whisper, this.cx, hud.whisperY);
       ctx.globalAlpha = 1;
     }
 
     if (!this.banging && this.hitLabelLife > 0 && this.mode === "play") {
+      ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.hitLabelLife / 0.4, 0, 1);
-      ctx.font = font(700, 28);
-      strokeText(ctx, this.hitLabel, this.cx, this.cy - this.orbRadius() - 48, 7);
-      ctx.globalAlpha = 1;
-    }
-
-    if (this.rankFlash > 0.05 && this.mode === "play" && !this.banging) {
-      ctx.globalAlpha = clamp(this.rankFlash, 0, 1);
-      ctx.font = font(800, 54);
-      strokeText(ctx, this.lastRankName, this.cx, this.cy + this.orbRadius() + 118, 10);
+      ctx.font = font(700, 22);
+      strokeText(ctx, this.hitLabel, this.cx, hud.hitY, 6);
       ctx.globalAlpha = 1;
     }
 
     if (this.combo >= 1 && !this.banging && this.mode === "play") {
-      const s = 1 + this.comboPop * 0.7 + this.rankFlash * 0.25;
-      const rank = rankFor(this.combo);
-      const mul = liveMultiplier(this.combo, this.perfectStreak, this.depth, this.mods().scoreMul);
+      const mul = streakMul(this.perfectStreak);
+      const s = 1 + this.comboPop * 0.22;
       ctx.save();
-      ctx.translate(this.cx, this.cy + this.orbRadius() + 52);
+      ctx.textAlign = "left";
+      ctx.translate(hud.comboX, hud.comboY);
       ctx.scale(s, s);
-      ctx.font = font(800, 56);
-      ctx.globalAlpha = 0.98;
-      strokeText(ctx, String(this.combo), 0, 0, 9);
+      ctx.font = font(800, 48);
+      ctx.globalAlpha = 0.95;
+      strokeText(ctx, String(this.combo), 0, 0, 8);
       ctx.restore();
-      ctx.globalAlpha = 0.7;
-      ctx.font = font(700, 18);
-      ctx.fillText(rank ? `${rank.name}  ${formatMul(mul)}` : formatMul(mul), this.cx, this.cy + this.orbRadius() + 92);
-      if (this.perfectStreak >= 2) {
-        ctx.font = font(600, 14);
-        ctx.globalAlpha = 0.5;
-        ctx.fillText(`${this.perfectStreak} PERFECT`, this.cx, this.cy + this.orbRadius() + 112);
-      }
-      const nxt = nextRank(this.combo);
-      if (nxt) {
-        const prevAt = rankFor(this.combo)?.at ?? 0;
-        const t = clamp((this.combo - prevAt) / (nxt.at - prevAt), 0, 1);
-        const bw = 88;
-        const bx = this.cx - bw / 2;
-        const by = this.cy + this.orbRadius() + 128;
-        ctx.globalAlpha = 0.25;
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(bx, by, bw, 4);
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(bx, by, bw * t, 4);
-      }
-      ctx.globalAlpha = 1;
-    }
 
-    if (this.mode === "play" && this.started) {
-      ctx.textAlign = "center";
-      ctx.globalAlpha = 0.55 + this.scorePop * 0.45;
-      ctx.font = font(800, 36);
-      strokeText(ctx, String(this.score), this.cx, 34, 7);
-      ctx.globalAlpha = 1;
-      if (this.mathLife > 0.05 && this.lastMath) {
-        ctx.globalAlpha = clamp(this.mathLife / 0.35, 0, 0.85);
-        ctx.font = font(600, 16);
-        ctx.fillText(`+${this.lastGain}   ${this.lastMath}`, this.cx, 64);
+      const label = formatMul(mul);
+      if (label) {
+        ctx.textAlign = "left";
+        ctx.font = font(700, 20);
+        ctx.globalAlpha = 0.55 + this.mulFlash * 0.45;
+        ctx.fillText(label, hud.comboX, hud.mulY);
         ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 0.45;
-      ctx.font = font(600, 14);
-      ctx.fillText(`DEPTH ${this.depth}   ·   BEST ${this.best}`, this.cx, this.mathLife > 0.05 ? 86 : 64);
-      ctx.globalAlpha = 1;
     }
 
     if (this.mode === "play" && this.started && !this.banging) {
       const need = this.bangNeed();
       const t = clamp(this.mass / Math.max(0.001, need), 0, 1);
-      const bw = Math.min(280, this.w - 48);
-      const bx = this.cx - bw / 2;
-      const by = this.h - 46;
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.2;
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 1;
-      ctx.strokeRect(bx, by, bw, 6);
-      ctx.globalAlpha = 0.85;
+      ctx.strokeRect(hud.massX, hud.massY, hud.massW, 5);
+      ctx.globalAlpha = 0.8;
       ctx.fillStyle = "#fff";
-      ctx.fillRect(bx, by, bw * t, 6);
-      ctx.globalAlpha = 0.4;
-      ctx.font = font(500, 12);
-      ctx.textAlign = "center";
-      ctx.fillText(`MASS ${this.mass.toFixed(1)} / ${need}`, this.cx, by - 12);
+      ctx.fillRect(hud.massX, hud.massY, hud.massW * t, 5);
       ctx.globalAlpha = 1;
     }
 
-    ctx.globalAlpha = 0.4;
-    ctx.font = font(500, 13);
-    ctx.textAlign = "left";
-    if (this.best > 0) ctx.fillText(`best ${this.best}`, 16, this.h - 18);
-    ctx.textAlign = "right";
-    if (this.relics.length > 0) {
-      ctx.fillText(`${this.relics.length} relic${this.relics.length === 1 ? "" : "s"}`, this.w - 16, this.h - 18);
-    } else if (this.universes > 0) {
-      ctx.fillText(`${this.universes} universe${this.universes === 1 ? "" : "s"}`, this.w - 16, this.h - 18);
+    if (this.mode === "play") {
+      ctx.globalAlpha = 0.4;
+      ctx.font = font(500, 13);
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      if (this.relics.length > 0) {
+        ctx.fillText(`${this.relics.length} relic${this.relics.length === 1 ? "" : "s"}`, hud.relicX, hud.relicY);
+      } else if (this.universes > 0) {
+        ctx.fillText(`${this.universes} universe${this.universes === 1 ? "" : "s"}`, hud.relicX, hud.relicY);
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
     if (this.banging && this.bangT > 0.75 && this.mode === "play") {
       const fade = clamp((this.bangT - 0.75) / 0.25, 0, 1) * (this.bangT > 2.4 ? 1 - clamp((this.bangT - 2.4) / 0.6, 0, 1) : 1);

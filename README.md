@@ -24,15 +24,13 @@ Opens at [http://127.0.0.1:4177](http://127.0.0.1:4177).
 
 No tutorial. The first tap always lands. After that, the ring is the game.
 
-After a bang, tap once to skip to the draft. Cards sit in the lower half of the screen — tap one, or press `1` `2` `3`. Miss-clicks do nothing.
+After a bang, tap once to skip to the draft. On a wide screen the three cards sit in a row. Tap one, or press `1` `2` `3`. Miss-clicks do nothing.
 
 ## Run
 
-Each universe is a floor. Fill it until it bangs. Then pick **one of three relics** and descend. Score is run-long. The formula is on screen:
+Each universe is a floor. Fill it until it bangs. Then pick **one of three relics** and descend. Score is run-long.
 
-`base × combo × depth × streak × relics`
-
-Streak ranks fire as combo climbs: **WARM** 4, **HOT** 7, **BLAZE** 10, **INFERNO** 15, **SINGULAR** 22, **NOTHING** 30. Each rank shakes harder, dumps particles, and stacks another multiplier.
+Combo multiplies every hit. A perfect streak adds a clean extra multiplier: **×1.5** at 4, **×2** at 8, **×3** at 12. Depth and relics multiply on top. No formula dump, no named ranks.
 
 The first universe cannot kill you. After that:
 
@@ -50,12 +48,12 @@ Examples: Afterimage (wider kiss), Quiet (silence pays), Greed (+30% score, fast
 
 ## How it feels
 
-- **Perfect** — ring meets the orb. Hitstop, punch, pitch-up pop, combo, floating math.
+- **Perfect** — ring meets the orb. A small punch, pitch-up pop, combo.
 - **Good** — close. Smaller burst, combo holds.
 - **Miss** — too early, too late, or you let the pulse die.
 - **Void pulses** — dashed hollow ring. Let it pass for **SILENCE**. Tap it and the void takes.
 - **Resonance** — perfects in a row. Extra matter, a chord.
-- **Rank-up** — combo crosses a streak gate. Shockwave, chord, bigger rumble.
+- **Streak** — 4 / 8 / 12 perfects. ×1.5, ×2, ×3 and a chord.
 - **Bang** — tap through the score, pick a relic. Depth +1.
 
 Sounds are synthesized with the Web Audio API — there are no audio files. The first tap unlocks audio (browser autoplay rules).
