@@ -30,7 +30,21 @@ import {
 } from "./progress";
 import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
 import { Sky } from "./sky";
-import type { Phase, PulseKind } from "./types";
+import {
+  SKIP_FADE,
+  SPLASH_END,
+  MENU_CLICK_LOCK,
+  drawMainMenu,
+  drawTitleCards,
+  hitPlayPrompt,
+  logSplashPhase,
+  menuLook,
+  resetSplashLog,
+  titleLook,
+  type TitleLook,
+} from "./title";
+import type { Mode, Phase, PulseKind, SplashPhase } from "./types";
+import { font, strokeText } from "./ui";
 import {
   hostMuteState,
   onBang,
@@ -47,7 +61,7 @@ import {
   toggleHostMute,
 } from "./wavedash";
 
-const TITLE_FADE_END = 4.6;
+const HUD_REVEAL_FADE = 0.85;
 const MAX_HEARTS = 3;
 
 export type SafeArea = {
@@ -80,22 +94,6 @@ function phaseFor(mass: number, banging: boolean, sparkMin: number): Phase {
   return "void";
 }
 
-function strokeText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width = 5): void {
-  ctx.lineJoin = "round";
-  ctx.miterLimit = 2;
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.lineWidth = width;
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = "#fff";
-  ctx.fillText(text, x, y);
-}
-
-const UI_FONT = "ui-sans-serif, system-ui, sans-serif";
-
-function font(weight: number, size: number): string {
-  return `${weight} ${size}px ${UI_FONT}`;
-}
-
 export class Game {
   readonly audio = new AudioEngine();
   readonly juice = new Juice();
@@ -110,7 +108,7 @@ export class Game {
   pulseKind: PulseKind = "create";
   whisper = "";
   whisperLife = 0;
-  mode: "play" | "dead" = "play";
+  mode: Mode = "splash";
   depth = 1;
   pointerX = 0;
   pointerY = 0;
@@ -153,7 +151,18 @@ export class Game {
   bangHeadline = "A  U N I V E R S E";
   newBest = false;
 
-  titleAlpha = 0;
+  splashT = 0;
+  splashPhase: SplashPhase = "black";
+  skipFade = 0;
+  skippedSplash = false;
+  menuHoverPlay = false;
+  menuPromptAlpha = 1;
+  hudAlpha = 0;
+  hudRevealAt = Number.POSITIVE_INFINITY;
+  hudRevealed = false;
+  hudHoldUntilPulse = true;
+  inputLockUntil = 0;
+  intro: TitleLook = titleLook(0);
   comboPop = 0;
   squashX = 1;
   squashY = 1;
@@ -168,7 +177,9 @@ export class Game {
   platToastLife = 0;
 
   constructor() {
+    resetSplashLog();
     log("game construct", {
+      mode: this.mode,
       best: this.best,
       bestDepth: this.bestDepth,
       hearts: this.hearts,
@@ -258,21 +269,33 @@ export class Game {
 
   async tap(x: number, y: number): Promise<void> {
     const mute = this.muteRect();
-    if (x >= mute.x && x <= mute.x + mute.s && y >= mute.y && y <= mute.y + mute.s) {
+    const muteVisible = this.mode !== "splash";
+    if (muteVisible && x >= mute.x && x <= mute.x + mute.s && y >= mute.y && y <= mute.y + mute.s) {
       this.toggleMute();
+      log("mute tap", { muted: this.muted, mode: this.mode });
       return;
     }
 
     void this.audio.unlock();
 
+    if (this.inputLocked() && this.mode !== "splash") {
+      log("tap ignored — intro lock", { mode: this.mode, left: Number((this.inputLockUntil - this.wallTime).toFixed(2)) });
+      return;
+    }
+
+    if (this.mode === "splash") {
+      this.skipSplash();
+      return;
+    }
+
+    if (this.mode === "menu") {
+      this.beginFromMenu();
+      return;
+    }
+
     if (this.mode === "dead") {
-      this.startRun();
-      this.started = true;
-      this.awaitingFirstPulse = false;
-      this.universeFresh = false;
-      this.applyTap("perfect", 0, 0);
-      this.beginNextCycle(1.6);
-      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts, user: platform.username, from: "dead" });
+      log("dead tap → waiting point", { score: this.score, depth: this.depth, best: this.best });
+      this.openMenu("dead");
       return;
     }
 
@@ -291,13 +314,7 @@ export class Game {
     }
 
     if (!this.started) {
-      this.started = true;
-      this.awaitingFirstPulse = false;
-      this.universeFresh = false;
-      this.applyTap("perfect", 0, 0);
-      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts, user: platform.username });
-      setPresence("DEPTH 1", platform.username);
-      this.beginNextCycle(1.6);
+      this.beginFromMenu();
       return;
     }
 
@@ -398,6 +415,9 @@ export class Game {
   movePointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
+    if (this.mode === "menu" || this.mode === "splash") {
+      this.menuHoverPlay = hitPlayPrompt(x, y, this.cx, this.cy, Math.min(this.w, this.h));
+    }
   }
 
   update(dt: number): void {
@@ -405,7 +425,8 @@ export class Game {
     const frozen = this.juice.hitstop > 0;
     this.juice.update(dt);
 
-    this.updateTitle();
+    this.updateIntro(dt);
+    this.updateHudReveal();
     this.comboPop = Math.max(0, this.comboPop - dt * 2.8);
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.whisperLife = Math.max(0, this.whisperLife - dt);
@@ -420,8 +441,11 @@ export class Game {
     this.gameTime += gdt;
 
     this.particles.update(dt, this.cx, this.cy);
+    if (this.mode === "menu") {
+      this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.cx, this.cy, Math.min(this.w, this.h));
+    }
 
-    if (this.mode === "dead") return;
+    if (this.mode === "dead" || this.mode === "splash" || this.mode === "menu") return;
 
     if (this.banging) {
       this.updateBang(gdt);
@@ -446,7 +470,13 @@ export class Game {
   draw(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.w, this.h);
-    this.sky.draw(ctx, this.w, this.h);
+
+    if (this.intro.skyAlpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = this.intro.skyAlpha;
+      this.sky.draw(ctx, this.w, this.h);
+      ctx.restore();
+    }
 
     const ox = this.juice.offsetX;
     const oy = this.juice.offsetY;
@@ -455,47 +485,60 @@ export class Game {
     const orbR = this.visualOrbRadius();
     this.windowGlow = 0;
 
-    ctx.save();
-    ctx.translate(ox, oy);
+    if (this.intro.orbAlpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = this.intro.orbAlpha;
+      ctx.translate(ox, oy);
 
-    if (this.started && !this.banging && this.mode === "play") {
-      ctx.beginPath();
-      ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,255,255,0.14)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,255,255,0.14)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed && this.gameTime >= this.cycleStart) {
+        const p = this.cycleProgress();
+        const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
+        const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
+        const gap = Math.abs(ringR - this.orbRadius());
+        const contracting = p >= pulseExpandEnd(KISS);
+        const windows = this.kissWindows();
+        const nearKiss = contracting && p <= KISS + 0.08 && gap <= windows.goodGap;
+        const voidPulse = this.pulseKind === "void";
+        this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
+        const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
+        drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
+      }
+
+      drawOrb(
+        ctx,
+        cx,
+        cy,
+        orbR,
+        this.phase,
+        1 + Math.sin(this.wallTime * 2.2) * 0.055 + this.windowGlow * 0.12,
+        this.squashX,
+        this.squashY,
+        this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
+      );
+
+      this.particles.draw(ctx);
+      ctx.restore();
     }
 
-    if (this.started && !this.banging && this.mode === "play" && this.cycleArmed && this.gameTime >= this.cycleStart) {
-      const p = this.cycleProgress();
-      const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
-      const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
-      const gap = Math.abs(ringR - this.orbRadius());
-      const contracting = p >= pulseExpandEnd(KISS);
-      const windows = this.kissWindows();
-      const nearKiss = contracting && p <= KISS + 0.08 && gap <= windows.goodGap;
-      const voidPulse = this.pulseKind === "void";
-      this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
-      const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
-      drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
+    if (this.mode !== "splash") {
+      this.juice.drawOverlays(ctx, this.w, this.h, cx + ox, cy + oy);
     }
+    drawTitleCards(ctx, this.w, this.h, cx, cy, this.intro);
 
-    drawOrb(
-      ctx,
-      cx,
-      cy,
-      orbR,
-      this.phase,
-      1 + Math.sin(this.wallTime * 2.2) * 0.055 + this.windowGlow * 0.12,
-      this.squashX,
-      this.squashY,
-      this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
-    );
+    const menuA = this.mode === "play" ? this.menuPromptAlpha : this.intro.menuAlpha * this.menuPromptAlpha;
+    if (menuA > 0.01 && (this.mode === "splash" || this.mode === "menu" || this.mode === "play")) {
+      drawMainMenu(ctx, this.w, this.h, cx, cy, menuA, this.best, this.menuHoverPlay, this.wallTime);
+    }
+    if (this.mode === "menu") this.drawMenuIdentity(ctx, this.intro.menuAlpha);
 
-    this.particles.draw(ctx);
-    ctx.restore();
-
-    this.juice.drawOverlays(ctx, this.w, this.h, cx + ox, cy + oy);
     this.drawHud(ctx);
     if (this.mode === "dead") this.drawDead(ctx);
     this.drawMute(ctx);
@@ -611,6 +654,11 @@ export class Game {
         this.pulseIndex += 1;
         this.pulseKind = this.nextPulseKind();
         if (this.pulseKind === "void") this.audio.pulseCue("void");
+        if (this.hudHoldUntilPulse) {
+          this.hudHoldUntilPulse = false;
+          this.hudRevealAt = this.wallTime + 0.22;
+          log("hud reveal queued with first pulse", { index: this.pulseIndex, at: Number(this.hudRevealAt.toFixed(2)) });
+        }
         const windows = this.kissWindows();
         log("pulse armed", {
           index: this.pulseIndex,
@@ -747,6 +795,8 @@ export class Game {
     this.banging = true;
     this.bangT = 0;
     this.phase = "bang";
+    this.hudAlpha = 1;
+    this.hudRevealed = true;
     this.grantScore(Math.round(80 + this.sky.born.length * 2), this.perfectStreak);
     this.bangScore = this.score;
     this.newBest = this.bangScore > this.best;
@@ -808,6 +858,11 @@ export class Game {
     this.entropyActive = false;
     this.densify = 0;
     this.universeFresh = true;
+    this.hudAlpha = 1;
+    this.hudRevealed = true;
+    this.hudRevealAt = 0;
+    this.hudHoldUntilPulse = false;
+    this.menuPromptAlpha = 0;
     this.particles.trimOrbiters(0);
     this.sky.clearBorn();
     if (hard) this.particles.clear();
@@ -915,8 +970,7 @@ export class Game {
   }
 
   private startRun(): void {
-    log("run start", { user: platform.username, hosted: platform.hosted });
-    this.mode = "play";
+    log("run start", { from: this.mode, user: platform.username, hosted: platform.hosted });
     this.depth = 1;
     this.hearts = MAX_HEARTS;
     this.score = 0;
@@ -940,7 +994,139 @@ export class Game {
     this.juice.reset();
     this.lastGain = 0;
     this.mulFlash = 0;
+    this.hudAlpha = 0;
+    this.hudRevealed = false;
+    this.hudRevealAt = Number.POSITIVE_INFINITY;
+    this.hudHoldUntilPulse = true;
+    this.menuPromptAlpha = 1;
+    this.hitLabel = "";
+    this.hitLabelLife = 0;
+    this.whisperLife = 0;
+  }
+
+  private skipSplash(): void {
+    if (this.mode !== "splash") return;
+    this.skippedSplash = true;
+    this.skipFade = this.intro.orbAlpha;
+    log("splash skip → menu", {
+      t: Number(this.splashT.toFixed(2)),
+      phase: this.intro.phase,
+      orb: Number(this.intro.orbAlpha.toFixed(2)),
+    });
+    this.splashT = SPLASH_END;
+    this.enterMenu("skip");
+    this.lockInput(MENU_CLICK_LOCK, "splash-skip");
+  }
+
+  private enterMenu(why: string): void {
+    this.mode = "menu";
+    this.menuPromptAlpha = 1;
+    this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.cx, this.cy, Math.min(this.w, this.h));
+    log("menu", {
+      why,
+      skipped: this.skippedSplash,
+      best: this.best,
+      remnants: this.sky.remnants.length,
+      user: platform.username,
+      board: platform.board.length,
+      rank: platform.myRank,
+    });
+  }
+
+  private openMenu(why: string): void {
+    this.startRun();
+    this.skippedSplash = true;
+    this.skipFade = 1;
+    this.intro = menuLook();
+    this.enterMenu(why);
+    this.lockInput(MENU_CLICK_LOCK, why);
+  }
+
+  private beginFromMenu(): void {
+    if (this.mode === "play" && this.started) return;
+    this.mode = "play";
+    this.started = true;
+    this.awaitingFirstPulse = false;
+    this.universeFresh = false;
+    this.hudAlpha = 0;
+    this.hudRevealed = false;
+    this.hudHoldUntilPulse = true;
+    this.hudRevealAt = Number.POSITIVE_INFINITY;
+    this.menuPromptAlpha = 0;
+    this.applyTap("perfect", 0, 0);
+    this.hitLabel = "";
+    this.hitLabelLife = 0;
+    this.beginNextCycle(1.6);
     setPresence("DEPTH 1", platform.username);
+    log("menu play — universe begins", {
+      depth: this.depth,
+      hearts: this.hearts,
+      hud: "hidden until first pulse",
+      mass: Number(this.mass.toFixed(2)),
+      user: platform.username,
+    });
+  }
+
+  private inputLocked(): boolean {
+    return this.wallTime < this.inputLockUntil;
+  }
+
+  private lockInput(seconds: number, why: string): void {
+    this.inputLockUntil = this.wallTime + seconds;
+    log("input lock", { why, seconds, until: Number(this.inputLockUntil.toFixed(2)) });
+  }
+
+  private updateIntro(dt: number): void {
+    if (this.mode === "splash") {
+      this.splashT += dt;
+      this.intro = titleLook(this.splashT);
+      this.splashPhase = this.intro.phase;
+      logSplashPhase(this.intro.phase, this.splashT);
+      if (this.splashT >= SPLASH_END) this.enterMenu("splash-end");
+      return;
+    }
+
+    if (this.mode === "menu") {
+      if (this.skippedSplash && this.skipFade < 1) {
+        const prev = this.skipFade;
+        this.skipFade = Math.min(1, this.skipFade + dt / SKIP_FADE);
+        if (prev < 1 && this.skipFade >= 1) log("menu fade-in done");
+        this.intro = {
+          phase: "done",
+          studioAlpha: 0,
+          titleAlpha: 0,
+          orbAlpha: this.skipFade,
+          menuAlpha: this.skipFade,
+          skyAlpha: this.skipFade,
+        };
+        return;
+      }
+      this.intro = menuLook();
+      return;
+    }
+
+    if (this.menuPromptAlpha > 0) {
+      this.menuPromptAlpha = Math.max(0, this.menuPromptAlpha - dt / 0.28);
+    }
+    this.intro = {
+      phase: "done",
+      studioAlpha: 0,
+      titleAlpha: 0,
+      orbAlpha: 1,
+      menuAlpha: 0,
+      skyAlpha: 1,
+    };
+  }
+
+  private updateHudReveal(): void {
+    if (this.mode !== "play" || !this.started) return;
+    if (this.hudHoldUntilPulse) return;
+    if (this.wallTime < this.hudRevealAt) return;
+    this.hudAlpha = clamp((this.wallTime - this.hudRevealAt) / HUD_REVEAL_FADE, 0, 1);
+    if (!this.hudRevealed && this.hudAlpha > 0.04) {
+      this.hudRevealed = true;
+      log("hud reveal", { t: Number(this.wallTime.toFixed(2)), alpha: Number(this.hudAlpha.toFixed(2)) });
+    }
   }
 
   private descend(): void {
@@ -1020,7 +1206,7 @@ export class Game {
     ctx.globalAlpha = 0.4;
     ctx.textAlign = "center";
     ctx.font = font(500, 16);
-    ctx.fillText("TAP  TO  BEGIN", this.cx, hud.tapY);
+    ctx.fillText("TAP", this.cx, hud.tapY);
     ctx.restore();
   }
 
@@ -1063,88 +1249,83 @@ export class Game {
     ctx.restore();
   }
 
-  private updateTitle(): void {
-    const t = this.wallTime;
-    if (t < 0.5) this.titleAlpha = 0;
-    else if (t < 1.6) this.titleAlpha = (t - 0.5) / 1.1;
-    else if (t < 3.1) this.titleAlpha = 1;
-    else if (t < TITLE_FADE_END) this.titleAlpha = 1 - (t - 3.1) / (TITLE_FADE_END - 3.1);
-    else this.titleAlpha = 0;
-  }
-
-  private drawHud(ctx: CanvasRenderingContext2D): void {
+  private drawMenuIdentity(ctx: CanvasRenderingContext2D, alpha: number): void {
+    if (alpha <= 0.01) return;
     const hud = this.hudLayout();
     ctx.save();
-    ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
-
-    if (this.titleAlpha > 0.01 && !this.banging && !this.started) {
-      ctx.textAlign = "center";
-      ctx.globalAlpha = this.titleAlpha;
-      ctx.font = font(500, hud.compact ? 16 : 18);
-      ctx.fillText("N O T H I N G", this.cx, this.cy - 52);
-      if (platform.username) {
-        ctx.globalAlpha = this.titleAlpha * 0.45;
-        ctx.font = font(500, 13);
-        ctx.fillText(platform.username, this.cx, this.cy - 28);
-      }
-      ctx.globalAlpha = 1;
+    ctx.textBaseline = "middle";
+    if (platform.username) {
+      ctx.textAlign = "right";
+      ctx.globalAlpha = alpha * 0.45;
+      ctx.font = font(500, 13);
+      ctx.fillText(platform.username, this.w - this.safe.right - hud.pad, hud.muteY + hud.muteSize + 18);
     }
-
-    if (this.mode === "play" && !this.started && !this.banging && platform.board.length > 0) {
+    if (platform.board.length > 0) {
       if (hud.compact) {
         this.drawBoard(ctx, {
           x: this.cx,
           y: this.h - this.safe.bottom - 88,
           align: "center",
-          alpha: 0.28,
+          alpha: 0.28 * alpha,
           limit: 3,
           rowH: 16,
         });
       } else {
         this.drawBoard(ctx, {
           x: this.w - this.safe.right - hud.pad,
-          y: hud.muteY + hud.muteSize + 16,
+          y: hud.muteY + hud.muteSize + 36,
           align: "right",
-          alpha: 0.32,
+          alpha: 0.32 * alpha,
           limit: 6,
           rowH: 18,
         });
       }
     }
+    ctx.restore();
+  }
 
-    if (this.mode === "play" && this.started && !this.banging) {
+  private drawHud(ctx: CanvasRenderingContext2D): void {
+    if (this.mode === "splash" || this.mode === "menu") return;
+
+    const hud = this.hudLayout();
+    const chrome = this.hudAlpha;
+    ctx.save();
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+
+    if (this.mode === "play" && this.started && !this.banging && chrome > 0.01) {
       ctx.textAlign = "left";
-      ctx.globalAlpha = 0.92;
+      ctx.globalAlpha = 0.92 * chrome;
       ctx.font = font(800, hud.scoreSize);
       strokeText(ctx, String(this.score), hud.scoreX, hud.scoreY, 8);
       if (this.scorePop > 0.08 && this.lastGain > 0) {
-        ctx.globalAlpha = clamp(this.scorePop, 0, 0.85);
+        ctx.globalAlpha = clamp(this.scorePop, 0, 0.85) * chrome;
         ctx.font = font(700, hud.compact ? 14 : 18);
         ctx.fillText(`+${this.lastGain}`, hud.scoreX, hud.bestY);
       } else if (this.best > 0) {
-        ctx.globalAlpha = 0.4;
+        ctx.globalAlpha = 0.4 * chrome;
         ctx.font = font(500, hud.compact ? 12 : 14);
         ctx.fillText(`best ${this.best}`, hud.scoreX, hud.bestY);
       }
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.45 * chrome;
       ctx.font = font(600, hud.compact ? 12 : 14);
       ctx.fillText(`DEPTH ${this.depth}`, this.cx, hud.depthY);
       ctx.globalAlpha = 1;
     }
 
-    if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play" && this.hitLabelLife <= 0) {
+    if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play" && this.hitLabelLife <= 0 && chrome > 0.01) {
       ctx.textAlign = "center";
-      ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7);
+      ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7) * chrome;
       ctx.font = font(600, 16);
       ctx.fillText(this.whisper, this.cx, hud.whisperY);
       ctx.globalAlpha = 1;
     }
 
-    if (!this.banging && this.hitLabelLife > 0 && this.mode === "play") {
+    if (!this.banging && this.hitLabelLife > 0 && this.mode === "play" && this.pulseIndex > 0) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.hitLabelLife / 0.4, 0, 1);
       ctx.font = font(700, 22);
@@ -1152,7 +1333,7 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    if (this.combo >= 1 && !this.banging && this.mode === "play") {
+    if (this.combo >= 1 && !this.banging && this.mode === "play" && chrome > 0.01) {
       const mul = streakMul(this.perfectStreak);
       const s = 1 + this.comboPop * 0.18;
       ctx.save();
@@ -1160,27 +1341,27 @@ export class Game {
       ctx.translate(hud.comboX, hud.comboY);
       ctx.scale(s, s);
       ctx.font = font(800, hud.comboSize);
-      ctx.globalAlpha = 0.95;
+      ctx.globalAlpha = 0.95 * chrome;
       const comboText = String(this.combo);
       const comboW = ctx.measureText(comboText).width;
       strokeText(ctx, comboText, 0, 0, 8);
       const label = formatMul(mul);
       if (label) {
         ctx.font = font(700, hud.compact ? 18 : 26);
-        ctx.globalAlpha = 0.75 + this.mulFlash * 0.25;
+        ctx.globalAlpha = (0.75 + this.mulFlash * 0.25) * chrome;
         ctx.fillText(label, comboW + 16, 1);
       }
       ctx.restore();
     }
 
-    if (this.mode === "play" && this.started && !this.banging) {
+    if (this.mode === "play" && this.started && !this.banging && chrome > 0.01) {
       const need = this.bangNeed();
       const t = clamp(this.mass / Math.max(0.001, need), 0, 1);
-      ctx.globalAlpha = 0.2;
+      ctx.globalAlpha = 0.2 * chrome;
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 1;
       ctx.strokeRect(hud.massX, hud.massY, hud.massW, hud.massH);
-      ctx.globalAlpha = 0.8;
+      ctx.globalAlpha = 0.8 * chrome;
       ctx.fillStyle = "#fff";
       ctx.fillRect(hud.massX, hud.massY, hud.massW * t, hud.massH);
       ctx.globalAlpha = 1;
@@ -1215,9 +1396,10 @@ export class Game {
   }
 
   private drawHearts(ctx: CanvasRenderingContext2D): void {
-    if (this.mode !== "play" || !this.started) return;
+    if (this.mode !== "play" || !this.started || this.hudAlpha < 0.01) return;
     const hud = this.hudLayout();
     const gap = 16;
+    const chrome = this.hudAlpha;
     ctx.save();
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
@@ -1226,7 +1408,7 @@ export class Game {
       const x = hud.heartX - (MAX_HEARTS - 1 - i) * gap;
       const y = hud.heartY;
       const filled = i < this.hearts;
-      ctx.globalAlpha = filled ? (this.hearts === 1 ? 0.9 : 0.7) : 0.22;
+      ctx.globalAlpha = (filled ? (this.hearts === 1 ? 0.9 : 0.7) : 0.22) * chrome;
       ctx.beginPath();
       ctx.arc(x, y, 4.5, 0, Math.PI * 2);
       if (filled) ctx.fill();
@@ -1236,12 +1418,14 @@ export class Game {
   }
 
   private drawMute(ctx: CanvasRenderingContext2D): void {
+    if (this.mode === "splash") return;
     const { x, y, s } = this.muteRect();
     const cx = x + s / 2;
     const cy = y + s / 2;
     const u = s / 44;
+    const fade = this.mode === "menu" ? this.intro.menuAlpha : 1;
     ctx.save();
-    ctx.globalAlpha = 0.42;
+    ctx.globalAlpha = 0.42 * fade;
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
     ctx.lineWidth = 1.4;

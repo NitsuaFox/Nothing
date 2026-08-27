@@ -14,8 +14,8 @@ The SDK is injected on Wavedash. Local Vite play uses a stub so identity, boards
 
 | Feature | What it does |
 | --- | --- |
-| Identity | Shows your Wavedash username (or `YOU` locally) on the title and death screens |
-| Leaderboards | `high-scores`, `depth`, and `combo` — created at runtime, best kept, shown on title + death |
+| Identity | Shows your Wavedash username (or `YOU` locally) on the waiting-dot menu and death screen |
+| Leaderboards | `high-scores`, `depth`, and `combo` — created at runtime, best kept, shown on the waiting-dot menu + death |
 | Achievements | Base set in `wavedash/catalog.json` (first light, discoveries, streaks, depth, scores) |
 | Stats | Runs, best score/depth/combo, perfects, silences, universes, discoveries |
 | Cloud save | Syncs found words, best score, best depth, and run count across devices |
@@ -41,14 +41,16 @@ npm run dev
 
 Opens at [http://127.0.0.1:4177](http://127.0.0.1:4177).
 
+Boot is a title screen: **WHATTODOGAMES**, then **NOTHING**, then just a point. Tap (or **PLAY**) to begin. Score, combo, and the rest of the HUD stay off until the universe has started. After a run, tap the death screen to return to that waiting point.
+
 | Input | Action |
 | --- | --- |
-| Click / tap anywhere | Create (time it with the ring) |
-| Space | Create |
+| Click / tap anywhere | Skip the title, play from the menu, or create (time it with the ring) |
+| Space | Same as a tap |
 | M or the speaker | Mute |
 | Tab | Wavedash overlay (friends, settings) |
 
-No tutorial. The first tap always lands. After that, the ring is the game.
+No tutorial. The first tap of a run always lands. After that, the ring is the game.
 
 ## Run
 
@@ -65,7 +67,7 @@ Deeper floors get meaner. No shop, no pick — just a word:
 - Depth 4 **TIGHT** — a smaller kiss
 - Depth 5+ **DEEPER** — those stack, and bangs need more mass
 
-Death screens the score, peak combo, your name, rank, and a row of discoveries (found words vs dots). Tap to start a new run. Best score and best depth stay in this browser and sync to Wavedash cloud saves when the SDK is present. Scores go to `high-scores` (plus `depth` and `combo`).
+Death screens the score, peak combo, your name, rank, and a row of discoveries (found words vs dots). Tap to return to the waiting point. Best score and best depth stay in this browser and sync to Wavedash cloud saves when the SDK is present. Scores go to `high-scores` (plus `depth` and `combo`).
 
 ## How it feels
 
