@@ -1,7 +1,7 @@
 import type { DiscoveryId } from "./progress";
 
 /** Wavedash project id from the Developer Portal. */
-export const WAVEDASH_GAME_ID = "wd_770959de815da6fe71ce8f5efaa1f62caa5200f7071b8480c0b4dcf72b3af3b1";
+export const WAVEDASH_GAME_ID = "j97b4r6g42zdxc5v540d2cn1gs8d8r69";
 
 export const CLOUD_SAVE_PATH = "saves/nothing.json";
 

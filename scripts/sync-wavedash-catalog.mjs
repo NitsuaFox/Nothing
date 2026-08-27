@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const GAME_ID = "wd_770959de815da6fe71ce8f5efaa1f62caa5200f7071b8480c0b4dcf72b3af3b1";
+const GAME_ID = "j97b4r6g42zdxc5v540d2cn1gs8d8r69";
 const catalog = JSON.parse(readFileSync(join(ROOT, "wavedash/catalog.json"), "utf8"));
 
 function whichWavedash() {

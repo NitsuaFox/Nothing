@@ -6,7 +6,7 @@ Black screen. A small white orb. Tap when the pulse ring kisses it. Perfect hits
 
 Built as a tiny browser game for [Wavedash](https://docs.wavedash.com/getting-started/introduction): open a link, play immediately.
 
-Game id: `wd_770959de815da6fe71ce8f5efaa1f62caa5200f7071b8480c0b4dcf72b3af3b1` (`wavedash.toml`).
+Game id: `j97b4r6g42zdxc5v540d2cn1gs8d8r69` (`wavedash.toml`). Portal: [wavedash.com/dev-portal/w2d/nothing](https://wavedash.com/dev-portal/w2d/nothing).
 
 ## Wavedash
 
