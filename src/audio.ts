@@ -105,6 +105,45 @@ export class AudioEngine {
     this.burst(now, kind === "perfect" ? 0.05 : 0.03, 0.045, kind === "perfect" ? 1800 : 1400);
   }
 
+  pulseCue(kind: "create" | "void"): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    if (kind === "void") {
+      this.tone(90, 48, now, 0.05, 0.18, "sine");
+      return;
+    }
+    this.tone(220, 180, now, 0.025, 0.08, "sine");
+  }
+
+  silence(): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    this.tone(520, 780, now, 0.05, 0.28, "sine");
+    this.tone(260, 200, now, 0.04, 0.22, "triangle");
+  }
+
+  voidHit(): void {
+    if (!this.ctx || !this.master || !this.noise) return;
+    const now = this.ctx.currentTime;
+    this.tone(90, 36, now, 0.12, 0.22, "sine");
+    this.burst(now, 0.12, 0.22, 180);
+  }
+
+  resonance(combo: number): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    const pitch = 523 * Math.pow(2, (combo % 8) / 12);
+    this.tone(pitch, pitch * 1.5, now, 0.08, 0.22, "sine");
+    this.kick(64, now, 0.12);
+  }
+
+  phaseSting(phase: string): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    const freq = phase === "singularity" ? 110 : phase === "giant" ? 165 : phase === "star" ? 247 : 196;
+    this.tone(freq, freq * 1.25, now, 0.045, 0.2, "sine");
+  }
+
   bang(): void {
     if (!this.ctx || !this.master || !this.noise) return;
     const now = this.ctx.currentTime;

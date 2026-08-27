@@ -12,7 +12,9 @@ import {
   pulseRadius,
 } from "./orb";
 import { Particles } from "./particles";
-import type { Phase } from "./types";
+import { DISCOVERY_LABEL, loadFound, loadLives, saveFound, saveLives, type DiscoveryId } from "./progress";
+import { Sky } from "./sky";
+import type { Phase, PulseKind } from "./types";
 
 const BEST_KEY = "nothing:best";
 const BANG_MASS = 28;
@@ -69,6 +71,16 @@ export class Game {
   readonly audio = new AudioEngine();
   readonly juice = new Juice();
   readonly particles = new Particles();
+  readonly sky = new Sky();
+  found = loadFound();
+  lives = loadLives();
+  discoveredThisRun: DiscoveryId[] = [];
+  perfectStreak = 0;
+  silences = 0;
+  pulseIndex = 0;
+  pulseKind: PulseKind = "create";
+  whisper = "";
+  whisperLife = 0;
 
   w = 1;
   h = 1;
@@ -98,6 +110,7 @@ export class Game {
   bangT = 0;
   banging = false;
   bangScore = 0;
+  bangHeadline = "A  U N I V E R S E";
   newBest = false;
 
   titleAlpha = 0;
@@ -112,7 +125,7 @@ export class Game {
   muted = false;
 
   constructor() {
-    log("game construct", { best: this.best });
+    log("game construct", { best: this.best, lives: this.lives, remnants: this.sky.remnants.length, found: [...this.found] });
   }
 
   resize(w: number, h: number): void {
@@ -120,7 +133,7 @@ export class Game {
     this.h = h;
     this.cx = w / 2;
     this.cy = h / 2;
-    log("resize", { w, h });
+    log("resize", { w, h, remnants: this.sky.remnants.length, found: this.found.size });
   }
 
   muteRect(): { x: number; y: number; s: number } {
@@ -193,8 +206,12 @@ export class Game {
     }
 
     this.hitThisCycle = true;
-    this.applyTap(kind, errorMs, gap);
-    this.beginNextCycle(kind === "miss" ? 0.18 : 0.1);
+    if (this.pulseKind === "void") {
+      this.applyVoidStrike(errorMs, gap);
+    } else {
+      this.applyTap(kind, errorMs, gap);
+    }
+    this.beginNextCycle(kind === "miss" || this.pulseKind === "void" ? 0.2 : 0.1);
   }
 
   toggleMute(): void {
@@ -210,6 +227,8 @@ export class Game {
     this.updateTitle();
     this.comboPop = Math.max(0, this.comboPop - dt * 2.8);
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
+    this.whisperLife = Math.max(0, this.whisperLife - dt);
+    this.sky.update(dt);
     this.squashX = lerp(this.squashX, 1, 1 - Math.pow(0.0002, dt));
     this.squashY = lerp(this.squashY, 1, 1 - Math.pow(0.0002, dt));
     const timeScale = frozen ? 0.08 : this.phase === "singularity" ? 0.55 : this.phase === "bang" ? 0.7 : 1;
@@ -241,6 +260,7 @@ export class Game {
   draw(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.w, this.h);
+    this.sky.draw(ctx, this.w, this.h);
 
     const ox = this.juice.offsetX;
     const oy = this.juice.offsetY;
@@ -267,9 +287,10 @@ export class Game {
       const gap = Math.abs(ringR - this.orbRadius());
       const contracting = p >= pulseExpandEnd(KISS);
       const nearKiss = contracting && p <= KISS + 0.08 && gap <= GOOD_GAP;
-      this.windowGlow = nearKiss ? clamp(1 - gap / GOOD_GAP, 0, 1) : 0;
-      const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss ? 1 : 0.7;
-      drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss);
+      const voidPulse = this.pulseKind === "void";
+      this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / GOOD_GAP, 0, 1) : 0;
+      const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
+      drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
     }
 
     drawOrb(
@@ -281,7 +302,7 @@ export class Game {
       1 + Math.sin(this.wallTime * 2.2) * 0.055 + this.windowGlow * 0.12,
       this.squashX,
       this.squashY,
-      this.densify + this.windowGlow * 0.35,
+      this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
     );
 
     this.particles.draw(ctx);
@@ -320,25 +341,38 @@ export class Game {
     if (kind === "perfect") {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
+      this.perfectStreak += 1;
       const add = 1 + Math.min(this.combo, 24) * 0.04;
       this.mass += add;
       this.massCreated += add;
       this.squashX = 1.28;
       this.squashY = 0.72;
       this.particles.spawnBurst(this.cx, this.cy, 22 + Math.min(this.combo, 20), 280 + this.combo * 10, r);
+      this.sky.plantBurst(this.w, this.h, this.cx, this.cy, this.perfectStreak % 3 === 0 ? 3 : 1, 40 + this.combo * 3);
       this.comboPop = 1;
+      if (this.perfectStreak > 0 && this.perfectStreak % 3 === 0) {
+        this.hitLabel = "RESONANCE";
+        this.mass += 0.6;
+        this.massCreated += 0.6;
+        this.audio.resonance(this.combo);
+        this.discover("resonance");
+        log("resonance", { streak: this.perfectStreak, combo: this.combo });
+      }
     } else if (kind === "good") {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
+      this.perfectStreak = 0;
       const add = 0.55;
       this.mass += add;
       this.massCreated += add;
       this.squashX = 1.14;
       this.squashY = 0.84;
       this.particles.spawnBurst(this.cx, this.cy, 14, 200, r);
+      this.sky.plantBurst(this.w, this.h, this.cx, this.cy, 1, 28);
       this.comboPop = 0.85;
     } else {
       this.combo = 0;
+      this.perfectStreak = 0;
       this.mass = Math.max(0, this.mass - 0.45);
       this.squashX = 0.78;
       this.squashY = 1.22;
@@ -346,8 +380,9 @@ export class Game {
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
     }
 
-    this.score = Math.floor(this.massCreated * 10 + this.peakCombo * 5);
-    this.period = lerp(1.18, 0.58, clamp(this.combo / 32, 0, 1));
+    this.refreshScore();
+    const tempo = lerp(1.18, 0.58, clamp(this.combo / 32, 0, 1));
+    this.period = this.phase === "giant" ? tempo * 1.16 : tempo;
     this.juice.punch(kind);
     this.audio.tap(kind, this.combo);
 
@@ -375,7 +410,10 @@ export class Game {
         this.cycleArmed = true;
         this.cycleStart = this.gameTime;
         this.hitThisCycle = false;
-        log("pulse armed");
+        this.pulseIndex += 1;
+        this.pulseKind = this.nextPulseKind();
+        if (this.pulseKind === "void") this.audio.pulseCue("void");
+        log("pulse armed", { index: this.pulseIndex, kind: this.pulseKind });
       }
       return;
     }
@@ -383,9 +421,81 @@ export class Game {
     if (this.hitThisCycle) return;
     if (this.cycleProgress() >= 1) {
       this.hitThisCycle = true;
-      this.applyTap("miss", (1 - KISS) * this.period * 1000, 999);
-      log("pulse timeout miss");
+      if (this.pulseKind === "void") {
+        this.applySilence();
+      } else {
+        this.applyTap("miss", (1 - KISS) * this.period * 1000, 999);
+        log("pulse timeout miss");
+      }
       this.beginNextCycle(0.2);
+    }
+  }
+
+  private nextPulseKind(): PulseKind {
+    if (this.pulseIndex < 5) return "create";
+    const every = this.phase === "singularity" ? 3 : this.phase === "giant" ? 4 : 5;
+    return this.pulseIndex % every === 0 ? "void" : "create";
+  }
+
+  private applySilence(): void {
+    this.silences += 1;
+    this.combo += 1;
+    this.peakCombo = Math.max(this.peakCombo, this.combo);
+    this.mass += 0.9;
+    this.massCreated += 0.9;
+    this.hitLabel = "SILENCE";
+    this.hitLabelLife = 1.4;
+    this.comboPop = 0.9;
+    this.squashX = 0.92;
+    this.squashY = 1.08;
+    this.sky.plantBurst(this.w, this.h, this.cx, this.cy, 2, 70);
+    this.juice.silence();
+    this.audio.silence();
+    this.refreshScore();
+    this.discover("silence");
+    log("silence", { silences: this.silences, combo: this.combo, mass: Number(this.mass.toFixed(2)) });
+    if (this.mass >= BANG_MASS && !this.banging) this.startBang();
+  }
+
+  private applyVoidStrike(errorMs: number, gap: number): void {
+    this.combo = 0;
+    this.perfectStreak = 0;
+    this.mass = Math.max(0, this.mass - 1.4);
+    this.hitLabel = "VOID";
+    this.hitLabelLife = 1.3;
+    this.squashX = 0.72;
+    this.squashY = 1.28;
+    this.particles.vacuumToward(this.cx, this.cy, ["orbit", "burst"]);
+    this.juice.voidHit();
+    this.audio.voidHit();
+    this.refreshScore();
+    this.discover("voidtaken");
+    log(`tap kind=void combo=0 gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)}`);
+  }
+
+  private refreshScore(): void {
+    this.score = Math.floor(this.massCreated * 10 + this.peakCombo * 5 + this.silences * 18 + this.sky.born.length);
+  }
+
+  private discover(id: DiscoveryId): void {
+    if (this.found.has(id)) return;
+    this.found.add(id);
+    this.discoveredThisRun.push(id);
+    saveFound(this.found);
+    this.whisper = DISCOVERY_LABEL[id];
+    this.whisperLife = 1.8;
+    log("discovery", { id, label: DISCOVERY_LABEL[id] });
+  }
+
+  private setPhaseWhisper(phase: Phase): void {
+    if (phase === "spark") this.discover("spark");
+    if (phase === "star") this.discover("star");
+    if (phase === "giant") this.discover("giant");
+    if (phase === "singularity") this.discover("singularity");
+    if (phase === "spark" || phase === "star" || phase === "giant" || phase === "singularity") {
+      this.whisper = DISCOVERY_LABEL[phase];
+      this.whisperLife = 1.6;
+      this.audio.phaseSting(phase);
     }
   }
 
@@ -408,6 +518,7 @@ export class Game {
       log("phase", { from: this.phase, to: next, mass: Number(this.mass.toFixed(2)) });
       this.phase = next;
       this.densify = next === "singularity" ? 0.7 : 0;
+      this.setPhaseWhisper(next);
     }
     if (this.phase === "singularity") {
       this.densify = lerp(this.densify, 0.85, 0.08);
@@ -427,10 +538,23 @@ export class Game {
       saveBest(this.best);
     }
     this.universes += 1;
+    this.lives += 1;
+    saveLives(this.lives);
+    this.discover("universe");
+    const story = [...this.discoveredThisRun].reverse().find((id) => id !== "universe");
+    this.bangHeadline = this.newBest ? "N E W" : story ? DISCOVERY_LABEL[story] : "A  U N I V E R S E";
     this.juice.bang();
     this.audio.bang();
     this.particles.spawnStars(this.cx, this.cy, 90);
-    log("bang", { score: this.bangScore, peakCombo: this.peakCombo, universes: this.universes, newBest: this.newBest });
+    this.sky.collapse();
+    log("bang", {
+      score: this.bangScore,
+      peakCombo: this.peakCombo,
+      silences: this.silences,
+      universes: this.universes,
+      lives: this.lives,
+      newBest: this.newBest,
+    });
   }
 
   private updateBang(dt: number): void {
@@ -449,6 +573,11 @@ export class Game {
     this.massCreated = 0;
     this.combo = 0;
     this.peakCombo = 0;
+    this.perfectStreak = 0;
+    this.silences = 0;
+    this.pulseIndex = 0;
+    this.pulseKind = "create";
+    this.discoveredThisRun = [];
     this.score = 0;
     this.phase = "void";
     this.started = true;
@@ -461,6 +590,7 @@ export class Game {
     this.entropyActive = false;
     this.densify = 0;
     this.particles.trimOrbiters(0);
+    this.sky.clearBorn();
     if (hard) this.particles.clear();
     this.juice.reset();
   }
@@ -484,6 +614,13 @@ export class Game {
       ctx.globalAlpha = this.titleAlpha;
       ctx.font = "500 13px ui-sans-serif, system-ui, sans-serif";
       ctx.fillText("N O T H I N G", this.cx, this.cy - 42);
+      ctx.globalAlpha = 1;
+    }
+
+    if (!this.banging && this.whisperLife > 0 && this.whisper !== this.hitLabel) {
+      ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7);
+      ctx.font = "500 12px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText(this.whisper, this.cx, Math.max(36, this.cy - this.orbRadius() - 64));
       ctx.globalAlpha = 1;
     }
 
@@ -524,7 +661,7 @@ export class Game {
       ctx.fillStyle = "#fff";
       ctx.fillText(String(this.bangScore), this.cx, this.cy - 8);
       ctx.font = "500 12px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText(this.newBest ? "N E W" : "A  U N I V E R S E", this.cx, this.cy + 32);
+      ctx.fillText(this.bangHeadline, this.cx, this.cy + 32);
       ctx.globalAlpha = 1;
     }
 

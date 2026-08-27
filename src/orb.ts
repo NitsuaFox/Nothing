@@ -104,11 +104,30 @@ export function drawPulseRing(
   radius: number,
   alpha: number,
   kissHint: boolean,
+  kind: "create" | "void" = "create",
 ): void {
   if (alpha <= 0.01 || radius <= 0.5) return;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-  ctx.lineWidth = kissHint ? 3.4 : 1.6;
-  ctx.stroke();
+  ctx.save();
+  if (kind === "void") {
+    ctx.setLineDash([5, 7]);
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.55})`;
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    if (radius > 8) {
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(2, radius - 6), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.28})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  } else {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = kissHint ? 3.4 : 1.6;
+    ctx.stroke();
+  }
+  ctx.restore();
 }

@@ -77,6 +77,22 @@ export class Juice {
     }
   }
 
+  silence(): void {
+    this.hitstop = 0.02;
+    this.punchY += 3;
+    this.shake = 4;
+    this.flash = 0.12;
+    this.ring = 0.001;
+  }
+
+  voidHit(): void {
+    this.hitstop = 0.05;
+    this.punchY += 12;
+    this.shake = 16;
+    this.flash = 0.16;
+    this.invert = 0.38;
+  }
+
   bang(): void {
     this.hitstop = 0.08;
     this.shake = 18;

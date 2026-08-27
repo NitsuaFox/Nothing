@@ -46,6 +46,15 @@ Publish flow (from Wavedash docs):
 - **Entropy** — stop tapping and the universe unravels.
 - **Bang** — enough mass and time slows, then everything becomes light.
 
-Score is mass created this universe plus peak combo. Best is stored in this browser (`localStorage`). Universe count is for the session.
+Score is mass created, peak combo, silences, and stars planted. Best is stored in this browser (`localStorage`), along with discoveries and the faint sky leftover from your last Big Bang.
+
+## Depth
+
+Still one button. The universe just has more laws.
+
+- **Phases** — Void, Spark, Star, Giant, Singularity. Each whispers its name once. Giant pulses feel heavier. Singularity slows time.
+- **Void pulses** — A dashed hollow ring. Do not tap it. Let it pass for **SILENCE** (combo continues). Tap it and the void takes (**VOID**).
+- **Resonance** — Three perfects in a row. Extra matter, a chord, more stars.
+- **Sky** — Hits plant stars. After a bang, some remain as the next universe's night.
 
 Sounds are synthesized with the Web Audio API — there are no audio files. The first tap unlocks audio (browser autoplay rules).
