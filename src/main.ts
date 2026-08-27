@@ -44,7 +44,8 @@ bindInput(canvas, {
 });
 
 handshake();
-log("boot");
+(window as unknown as { nothing: Game }).nothing = game;
+log("boot", { debug: "window.nothing" });
 
 let last = performance.now();
 function frame(now: number): void {
