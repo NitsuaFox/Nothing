@@ -19,6 +19,7 @@ import { Sky } from "./sky";
 import {
   SKIP_FADE,
   SPLASH_END,
+  MENU_CLICK_LOCK,
   drawMainMenu,
   drawTitleCards,
   hitPlayPrompt,
@@ -32,8 +33,7 @@ import type { Mode, Phase, PulseKind, SplashPhase } from "./types";
 import { font, strokeText } from "./ui";
 import { submitScore } from "./wavedash";
 
-const HUD_REVEAL_DELAY = 1.15;
-const HUD_REVEAL_FADE = 0.75;
+const HUD_REVEAL_FADE = 0.85;
 
 function loadBest(): number {
   return loadHiscore();
@@ -130,6 +130,8 @@ export class Game {
   hudAlpha = 0;
   hudRevealAt = Number.POSITIVE_INFINITY;
   hudRevealed = false;
+  hudHoldUntilPulse = true;
+  inputLockUntil = 0;
   intro: TitleLook = titleLook(0);
   comboPop = 0;
   squashX = 1;
@@ -217,6 +219,11 @@ export class Game {
     }
 
     void this.audio.unlock();
+
+    if (this.inputLocked() && this.mode !== "splash") {
+      log("tap ignored — intro lock", { mode: this.mode, left: Number((this.inputLockUntil - this.wallTime).toFixed(2)) });
+      return;
+    }
 
     if (this.mode === "splash") {
       this.skipSplash();
@@ -559,6 +566,11 @@ export class Game {
         this.pulseIndex += 1;
         this.pulseKind = this.nextPulseKind();
         if (this.pulseKind === "void") this.audio.pulseCue("void");
+        if (this.hudHoldUntilPulse) {
+          this.hudHoldUntilPulse = false;
+          this.hudRevealAt = this.wallTime + 0.22;
+          log("hud reveal queued with first pulse", { index: this.pulseIndex, at: Number(this.hudRevealAt.toFixed(2)) });
+        }
         const windows = this.kissWindows();
         log("pulse armed", {
           index: this.pulseIndex,
@@ -751,6 +763,7 @@ export class Game {
     this.hudAlpha = 1;
     this.hudRevealed = true;
     this.hudRevealAt = 0;
+    this.hudHoldUntilPulse = false;
     this.menuPromptAlpha = 0;
     this.particles.trimOrbiters(0);
     if (mods.keepSky <= 0) this.sky.clearBorn();
@@ -902,6 +915,7 @@ export class Game {
     this.hudAlpha = 0;
     this.hudRevealed = false;
     this.hudRevealAt = Number.POSITIVE_INFINITY;
+    this.hudHoldUntilPulse = true;
     this.menuPromptAlpha = 1;
     this.hitLabel = "";
     this.hitLabelLife = 0;
@@ -919,6 +933,7 @@ export class Game {
     });
     this.splashT = SPLASH_END;
     this.enterMenu("skip");
+    this.lockInput(MENU_CLICK_LOCK, "splash-skip");
   }
 
   private enterMenu(why: string): void {
@@ -934,6 +949,7 @@ export class Game {
     this.skipFade = 1;
     this.intro = menuLook();
     this.enterMenu(why);
+    this.lockInput(MENU_CLICK_LOCK, why);
   }
 
   private beginFromMenu(): void {
@@ -944,16 +960,26 @@ export class Game {
     this.universeFresh = false;
     this.hudAlpha = 0;
     this.hudRevealed = false;
-    this.hudRevealAt = this.wallTime + HUD_REVEAL_DELAY;
+    this.hudHoldUntilPulse = true;
+    this.hudRevealAt = Number.POSITIVE_INFINITY;
     this.applyTap("perfect", 0, 0);
     this.hitLabel = "";
     this.hitLabelLife = 0;
     this.beginNextCycle(1.6);
     log("menu play — universe begins", {
       depth: this.depth,
-      hudAt: Number(this.hudRevealAt.toFixed(2)),
+      hud: "hidden until first pulse",
       mass: Number(this.mass.toFixed(2)),
     });
+  }
+
+  private inputLocked(): boolean {
+    return this.wallTime < this.inputLockUntil;
+  }
+
+  private lockInput(seconds: number, why: string): void {
+    this.inputLockUntil = this.wallTime + seconds;
+    log("input lock", { why, seconds, until: Number(this.inputLockUntil.toFixed(2)) });
   }
 
   private updateIntro(dt: number): void {
@@ -1000,11 +1026,12 @@ export class Game {
 
   private updateHudReveal(): void {
     if (this.mode !== "play" || !this.started) return;
+    if (this.hudHoldUntilPulse) return;
     if (this.wallTime < this.hudRevealAt) return;
     this.hudAlpha = clamp((this.wallTime - this.hudRevealAt) / HUD_REVEAL_FADE, 0, 1);
     if (!this.hudRevealed && this.hudAlpha > 0.04) {
       this.hudRevealed = true;
-      log("hud reveal", { t: Number(this.wallTime.toFixed(2)), delay: HUD_REVEAL_DELAY });
+      log("hud reveal", { t: Number(this.wallTime.toFixed(2)), alpha: Number(this.hudAlpha.toFixed(2)) });
     }
   }
 

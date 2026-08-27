@@ -7,23 +7,24 @@ import { fillTracked, fitTrackedSize, font } from "./ui";
  * Boot title card, in seconds from splash start.
  * Studio first (no star), then NOTHING huge, then both die and the point remains.
  */
-const STUDIO_IN = 0.4;
-const STUDIO_FULL = 1.15;
-const STUDIO_HOLD = 2.15;
-const STUDIO_OUT = 2.85;
+const STUDIO_IN = 0.45;
+const STUDIO_FULL = 1.25;
+const STUDIO_HOLD = 2.4;
+const STUDIO_OUT = 3.1;
 
-const TITLE_IN = 3.05;
-const TITLE_FULL = 4.05;
-const TITLE_HOLD = 5.35;
-const TITLE_OUT = 6.55;
+const TITLE_IN = 3.3;
+const TITLE_FULL = 4.5;
+const TITLE_HOLD = 6.6;
+const TITLE_OUT = 7.85;
 
-const ORB_IN = 6.15;
-const ORB_FULL = 7.15;
-const MENU_IN = 6.85;
-const MENU_FULL = 7.7;
+const ORB_IN = 7.4;
+const ORB_FULL = 8.5;
+const MENU_IN = 8.2;
+const MENU_FULL = 9.05;
 
-export const SPLASH_END = 7.7;
-export const SKIP_FADE = 0.42;
+export const SPLASH_END = 9.05;
+export const SKIP_FADE = 0.45;
+export const MENU_CLICK_LOCK = 0.4;
 
 export type TitleLook = {
   phase: SplashPhase;
@@ -122,7 +123,7 @@ export function drawTitleCards(
 
   if (look.titleAlpha > 0.01) {
     const label = "NOTHING";
-    const maxSize = clamp(minDim * 0.16, 64, 128);
+    const maxSize = clamp(minDim * 0.2, 72, 168);
     ctx.globalAlpha = look.titleAlpha;
     const { size, tracking } = fitTrackedSize(ctx, label, 800, maxSize, w * 0.9, 0.22);
     ctx.font = font(800, size);
