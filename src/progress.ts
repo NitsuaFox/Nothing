@@ -10,6 +10,17 @@ export type DiscoveryId =
   | "voidtaken"
   | "resonance";
 
+export const DISCOVERY_ORDER: DiscoveryId[] = [
+  "spark",
+  "star",
+  "giant",
+  "singularity",
+  "universe",
+  "silence",
+  "voidtaken",
+  "resonance",
+];
+
 export const DISCOVERY_LABEL: Record<DiscoveryId, string> = {
   spark: "SPARK",
   star: "STAR",
@@ -22,7 +33,6 @@ export const DISCOVERY_LABEL: Record<DiscoveryId, string> = {
 };
 
 const FOUND_KEY = "nothing:found";
-const LIVES_KEY = "nothing:lives";
 const HISCORE_KEY = "nothing:hiscore";
 const HIDEPTH_KEY = "nothing:hidepth";
 const RUNS_KEY = "nothing:runs";
@@ -47,19 +57,6 @@ export function saveFound(found: Set<DiscoveryId>): void {
     localStorage.setItem(FOUND_KEY, JSON.stringify([...found]));
   } catch (error) {
     log("found save failed", { error: String(error) });
-  }
-}
-
-export function loadLives(): number {
-  const n = Number(localStorage.getItem(LIVES_KEY) ?? "0");
-  return Number.isFinite(n) ? n : 0;
-}
-
-export function saveLives(count: number): void {
-  try {
-    localStorage.setItem(LIVES_KEY, String(count));
-  } catch (error) {
-    log("lives save failed", { error: String(error) });
   }
 }
 
