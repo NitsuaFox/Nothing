@@ -1104,7 +1104,7 @@ export class Game {
       } else {
         this.drawBoard(ctx, {
           x: this.w - this.safe.right - hud.pad,
-          y: this.safe.top + 72,
+          y: hud.muteY + hud.muteSize + 16,
           align: "right",
           alpha: 0.32,
           limit: 6,
@@ -1203,7 +1203,7 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    if (this.platToastLife > 0 && this.platToast) {
+    if (this.platToastLife > 0 && this.platToast && this.mode === "play" && !this.banging) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.platToastLife / 0.5, 0, 0.55);
       ctx.font = font(600, hud.compact ? 12 : 14);
