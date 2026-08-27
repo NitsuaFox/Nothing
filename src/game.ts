@@ -174,8 +174,7 @@ export class Game {
       whisperY: pad + 72,
       hitY: this.cy - this.orbRadius() - 72,
       comboX: pad,
-      comboY: this.h - pad - 70,
-      mulY: this.h - pad - 32,
+      comboY: this.h - pad - 56,
       massW,
       massX: this.cx - massW / 2,
       massY: this.h - pad - 10,
@@ -893,12 +892,12 @@ export class Game {
     const wide = this.w >= 720;
 
     if (wide) {
-      const gap = Math.max(18, Math.round(this.w * 0.018));
-      const cardW = Math.min(320, (this.w - pad * 2 - gap * (n - 1)) / n);
-      const cardH = Math.min(240, Math.max(150, this.h * 0.36));
+      const gap = Math.max(24, Math.round(this.w * 0.024));
+      const y = this.h * 0.28;
+      const cardH = Math.max(200, Math.min(this.h * 0.48, this.h - y - pad - 56));
+      const cardW = Math.min(420, (this.w - pad * 2 - gap * (n - 1)) / n);
       const totalW = n * cardW + (n - 1) * gap;
       const x0 = this.cx - totalW / 2;
-      const y = Math.max(this.h * 0.34, Math.min(this.h * 0.42, this.h - pad - cardH - 48));
       return this.draft.map((relic, i) => ({ relic, x: x0 + i * (cardW + gap), y, w: cardW, h: cardH }));
     }
 
@@ -918,7 +917,6 @@ export class Game {
     ctx.fillRect(0, 0, this.w, this.h);
 
     const cards = this.draftLayout();
-    const top = cards[0]?.y ?? this.h * 0.42;
     const hintY = cards.length
       ? Math.min(this.h - 28, cards[0].y + cards[0].h + 40)
       : this.h - 28;
@@ -928,10 +926,10 @@ export class Game {
     ctx.fillStyle = "#fff";
     ctx.globalAlpha = 0.5;
     ctx.font = font(600, 14);
-    ctx.fillText(`DEPTH ${this.depth + 1}`, this.cx, Math.max(36, top - 86));
+    ctx.fillText(`DEPTH ${this.depth + 1}`, this.cx, Math.max(40, this.h * 0.1));
     ctx.globalAlpha = 1;
-    ctx.font = font(700, 28);
-    ctx.fillText("TAKE ONE", this.cx, Math.max(64, top - 52));
+    ctx.font = font(700, 32);
+    ctx.fillText("TAKE ONE", this.cx, Math.max(78, this.h * 0.16));
     ctx.globalAlpha = 0.45;
     ctx.font = font(500, 14);
     ctx.fillText("TAP A CARD   ·   1  2  3", this.cx, hintY);
@@ -1067,24 +1065,23 @@ export class Game {
 
     if (this.combo >= 1 && !this.banging && this.mode === "play") {
       const mul = streakMul(this.perfectStreak);
-      const s = 1 + this.comboPop * 0.22;
+      const s = 1 + this.comboPop * 0.18;
       ctx.save();
       ctx.textAlign = "left";
       ctx.translate(hud.comboX, hud.comboY);
       ctx.scale(s, s);
       ctx.font = font(800, 48);
       ctx.globalAlpha = 0.95;
-      strokeText(ctx, String(this.combo), 0, 0, 8);
-      ctx.restore();
-
+      const comboText = String(this.combo);
+      const comboW = ctx.measureText(comboText).width;
+      strokeText(ctx, comboText, 0, 0, 8);
       const label = formatMul(mul);
       if (label) {
-        ctx.textAlign = "left";
-        ctx.font = font(700, 20);
-        ctx.globalAlpha = 0.55 + this.mulFlash * 0.45;
-        ctx.fillText(label, hud.comboX, hud.mulY);
-        ctx.globalAlpha = 1;
+        ctx.font = font(700, 26);
+        ctx.globalAlpha = 0.75 + this.mulFlash * 0.25;
+        ctx.fillText(label, comboW + 16, 1);
       }
+      ctx.restore();
     }
 
     if (this.mode === "play" && this.started && !this.banging) {
