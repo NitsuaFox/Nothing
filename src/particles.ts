@@ -2,6 +2,16 @@ import { rand } from "./math";
 
 export type ParticleKind = "burst" | "orbit" | "vacuum" | "star";
 
+export type Floater = {
+  x: number;
+  y: number;
+  vy: number;
+  text: string;
+  life: number;
+  maxLife: number;
+  size: number;
+};
+
 export type Particle = {
   x: number;
   y: number;
@@ -18,6 +28,19 @@ export type Particle = {
 
 export class Particles {
   list: Particle[] = [];
+  floaters: Floater[] = [];
+
+  spawnFloater(x: number, y: number, text: string, size = 22): void {
+    this.floaters.push({
+      x,
+      y,
+      vy: size > 20 ? -78 : -42,
+      text,
+      life: size > 20 ? 1.05 : 1.25,
+      maxLife: size > 20 ? 1.05 : 1.25,
+      size,
+    });
+  }
 
   spawnBurst(cx: number, cy: number, count: number, speed: number, radius = 8): void {
     for (let i = 0; i < count; i++) {
@@ -111,6 +134,7 @@ export class Particles {
 
   clear(): void {
     this.list.length = 0;
+    this.floaters.length = 0;
   }
 
   update(dt: number, cx: number, cy: number): void {
@@ -147,6 +171,14 @@ export class Particles {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
     }
+
+    for (let i = this.floaters.length - 1; i >= 0; i--) {
+      const f = this.floaters[i];
+      f.life -= dt;
+      f.y += f.vy * dt;
+      f.vy *= Math.pow(0.55, dt);
+      if (f.life <= 0) this.floaters.splice(i, 1);
+    }
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
@@ -158,6 +190,22 @@ export class Particles {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    for (const f of this.floaters) {
+      const fade = Math.max(0, f.life / f.maxLife);
+      ctx.globalAlpha = fade;
+      ctx.font = `700 ${f.size}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.strokeStyle = "rgba(0,0,0,0.85)";
+      ctx.lineWidth = Math.max(3, f.size * 0.18);
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(f.text, f.x, f.y);
     }
     ctx.restore();
   }

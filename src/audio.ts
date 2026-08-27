@@ -144,6 +144,25 @@ export class AudioEngine {
     this.tone(freq, freq * 1.25, now, 0.045, 0.2, "sine");
   }
 
+  rankUp(): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    this.kick(78, now, 0.16);
+    this.tone(392, 784, now, 0.1, 0.32, "sine");
+    this.tone(523, 1046, now + 0.04, 0.08, 0.38, "triangle");
+    this.burst(now, 0.08, 0.12, 2200);
+    log("audio rank-up");
+  }
+
+  relicPick(): void {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    this.kick(70, now, 0.12);
+    this.tone(330, 660, now, 0.07, 0.22, "triangle");
+    this.tone(495, 990, now + 0.05, 0.06, 0.28, "sine");
+    log("audio relic pick");
+  }
+
   bang(): void {
     if (!this.ctx || !this.master || !this.noise) return;
     const now = this.ctx.currentTime;

@@ -55,18 +55,19 @@ export class Juice {
     }
   }
 
-  punch(kind: "perfect" | "good" | "miss"): void {
+  punch(kind: "perfect" | "good" | "miss", combo = 0): void {
+    const heat = 1 + Math.min(combo, 36) * 0.045;
     if (kind === "perfect") {
-      this.hitstop = 0.03;
-      this.punchY -= 14;
-      this.shake = 14;
-      this.flash = 0.42;
+      this.hitstop = 0.03 + Math.min(combo, 20) * 0.0012;
+      this.punchY -= 14 * heat;
+      this.shake = 14 * heat;
+      this.flash = Math.min(0.95, 0.42 * heat);
       this.ring = 0.001;
     } else if (kind === "good") {
       this.hitstop = 0.018;
-      this.punchY -= 8;
-      this.shake = 8;
-      this.flash = 0.22;
+      this.punchY -= 8 * heat;
+      this.shake = 8 * heat;
+      this.flash = 0.22 * heat;
       this.ring = 0.001;
     } else {
       this.hitstop = 0.034;
@@ -75,6 +76,22 @@ export class Juice {
       this.flash = 0.1;
       this.invert = 0.2;
     }
+  }
+
+  rankHit(shake: number): void {
+    this.hitstop = 0.055;
+    this.shake = Math.max(this.shake, shake);
+    this.flash = 0.9;
+    this.shockwave = 0;
+    this.shockwaveMax = 1;
+    this.ring = 0.001;
+  }
+
+  relicPick(): void {
+    this.hitstop = 0.04;
+    this.shake = 20;
+    this.flash = 0.62;
+    this.ring = 0.001;
   }
 
   silence(): void {
@@ -119,7 +136,7 @@ export class Juice {
 
   drawOverlays(ctx: CanvasRenderingContext2D, w: number, h: number, cx: number, cy: number): void {
     if (this.flash > 0.01) {
-      const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, 90);
+      const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, Math.max(160, Math.hypot(w, h) * 0.45));
       g.addColorStop(0, "rgba(255,255,255,0)");
       g.addColorStop(0.35, `rgba(255,255,255,${this.flash * 0.45})`);
       g.addColorStop(1, "rgba(255,255,255,0)");
@@ -128,7 +145,7 @@ export class Juice {
     }
 
     if (this.ring > 0) {
-      const r = lerp(10, 120, easeOut(this.ring));
+      const r = lerp(10, 220, easeOut(this.ring));
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,255,255,${1 - this.ring})`;
