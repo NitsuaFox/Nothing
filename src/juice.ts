@@ -12,6 +12,7 @@ export class Juice {
   invert = 0;
   shockwave = 0;
   shockwaveMax = 0;
+  ring = 0;
 
   get offsetX(): number {
     const jitter = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 2 : 0;
@@ -38,8 +39,12 @@ export class Juice {
     this.punchY += this.punchVY * dt;
 
     this.shake = Math.max(0, this.shake - dt * 16);
-    this.flash = Math.max(0, this.flash - dt * 2.4);
+    this.flash = Math.max(0, this.flash - dt * 3.2);
     this.invert = Math.max(0, this.invert - dt * 6);
+    if (this.ring > 0) {
+      this.ring += dt * 4.2;
+      if (this.ring > 1) this.ring = 0;
+    }
 
     if (this.shockwaveMax > 0) {
       this.shockwave += dt * 1.35;
@@ -52,21 +57,23 @@ export class Juice {
 
   punch(kind: "perfect" | "good" | "miss"): void {
     if (kind === "perfect") {
-      this.hitstop = 0.048;
-      this.punchY -= 16;
-      this.shake = 18;
-      this.flash = 0.9;
-    } else if (kind === "good") {
-      this.hitstop = 0.028;
-      this.punchY -= 10;
-      this.shake = 11;
-      this.flash = 0.5;
-    } else {
-      this.hitstop = 0.05;
-      this.punchY += 10;
+      this.hitstop = 0.03;
+      this.punchY -= 14;
       this.shake = 14;
-      this.flash = 0.28;
-      this.invert = 0.28;
+      this.flash = 0.42;
+      this.ring = 0.001;
+    } else if (kind === "good") {
+      this.hitstop = 0.018;
+      this.punchY -= 8;
+      this.shake = 8;
+      this.flash = 0.22;
+      this.ring = 0.001;
+    } else {
+      this.hitstop = 0.034;
+      this.punchY += 8;
+      this.shake = 10;
+      this.flash = 0.1;
+      this.invert = 0.2;
     }
   }
 
@@ -91,16 +98,26 @@ export class Juice {
     this.invert = 0;
     this.shockwave = 0;
     this.shockwaveMax = 0;
+    this.ring = 0;
   }
 
   drawOverlays(ctx: CanvasRenderingContext2D, w: number, h: number, cx: number, cy: number): void {
     if (this.flash > 0.01) {
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7);
-      g.addColorStop(0, `rgba(255,255,255,${this.flash * 0.85})`);
-      g.addColorStop(0.45, `rgba(255,255,255,${this.flash * 0.22})`);
+      const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, 90);
+      g.addColorStop(0, "rgba(255,255,255,0)");
+      g.addColorStop(0.35, `rgba(255,255,255,${this.flash * 0.45})`);
       g.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
+    }
+
+    if (this.ring > 0) {
+      const r = lerp(10, 120, easeOut(this.ring));
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,255,255,${1 - this.ring})`;
+      ctx.lineWidth = lerp(4, 0.8, this.ring);
+      ctx.stroke();
     }
 
     if (this.shockwaveMax > 0) {

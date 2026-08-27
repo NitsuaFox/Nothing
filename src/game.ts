@@ -55,6 +55,16 @@ function phaseFor(mass: number, banging: boolean): Phase {
   return "void";
 }
 
+function strokeText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = 5;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#fff";
+  ctx.fillText(text, x, y);
+}
+
 export class Game {
   readonly audio = new AudioEngine();
   readonly juice = new Juice();
@@ -210,7 +220,7 @@ export class Game {
     const gdt = dt * timeScale;
     this.gameTime += gdt;
 
-    this.particles.update(frozen ? dt * 0.2 : gdt, this.cx, this.cy);
+    this.particles.update(dt, this.cx, this.cy);
 
     if (this.banging) {
       this.updateBang(gdt);
@@ -309,7 +319,7 @@ export class Game {
   private applyTap(kind: TapKind, errorMs: number, gap: number): void {
     const r = this.orbRadius();
     this.hitLabel = kind === "perfect" ? "PERFECT" : kind === "good" ? "GOOD" : "MISS";
-    this.hitLabelLife = 0.7;
+    this.hitLabelLife = 0.95;
 
     if (kind === "perfect") {
       this.combo += 1;
@@ -461,7 +471,7 @@ export class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
 
-    if (this.titleAlpha > 0.01 && !this.banging) {
+    if (this.titleAlpha > 0.01 && !this.banging && !this.started) {
       ctx.globalAlpha = this.titleAlpha;
       ctx.font = "500 13px ui-sans-serif, system-ui, sans-serif";
       ctx.fillText("N O T H I N G", this.cx, this.cy - 42);
@@ -469,20 +479,20 @@ export class Game {
     }
 
     if (!this.banging && this.hitLabelLife > 0) {
-      ctx.globalAlpha = clamp(this.hitLabelLife / 0.35, 0, 1);
-      ctx.font = "700 14px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText(this.hitLabel, this.cx, this.cy - this.orbRadius() - 28);
+      ctx.globalAlpha = clamp(this.hitLabelLife / 0.4, 0, 1);
+      ctx.font = "700 18px ui-sans-serif, system-ui, sans-serif";
+      strokeText(ctx, this.hitLabel, this.cx, this.cy - this.orbRadius() - 36);
       ctx.globalAlpha = 1;
     }
 
     if (this.combo >= 1 && !this.banging) {
       const s = 1 + this.comboPop * 0.55;
       ctx.save();
-      ctx.translate(this.cx, this.cy + this.orbRadius() + 38);
+      ctx.translate(this.cx, this.cy + this.orbRadius() + 42);
       ctx.scale(s, s);
-      ctx.font = "700 32px ui-sans-serif, system-ui, sans-serif";
+      ctx.font = "700 36px ui-sans-serif, system-ui, sans-serif";
       ctx.globalAlpha = 0.95;
-      ctx.fillText(String(this.combo), 0, 0);
+      strokeText(ctx, String(this.combo), 0, 0);
       ctx.restore();
     }
 
