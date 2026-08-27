@@ -1,0 +1,5 @@
+# Nothing — Wavedash project
+# https://docs.wavedash.com/cli/configuration
+game_id = "j97b4r6g42zdxc5v540d2cn1gs8d8r69"
+upload_dir = "./dist"
+entrypoint = "index.html"
