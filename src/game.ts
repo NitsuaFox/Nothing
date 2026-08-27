@@ -172,7 +172,7 @@ export class Game {
       bestY: pad + 58,
       depthY: pad + 22,
       whisperY: pad + 72,
-      hitY: this.cy - this.orbRadius() - 52,
+      hitY: this.cy - this.orbRadius() - 72,
       comboX: pad,
       comboY: this.h - pad - 70,
       mulY: this.h - pad - 32,
@@ -181,6 +181,17 @@ export class Game {
       massY: this.h - pad - 10,
       relicX: this.w - pad,
       relicY: this.h - pad - 18,
+    };
+  }
+
+  private kissWindows(): { perfectGap: number; goodGap: number } {
+    const orbR = this.orbRadius();
+    const maxR = pulseMaxRadius(orbR, this.w, this.h);
+    const scale = Math.max(24, maxR - orbR) / 52;
+    const mods = this.mods();
+    return {
+      perfectGap: mods.perfectGap * scale,
+      goodGap: mods.goodGap * scale,
     };
   }
 
@@ -260,20 +271,20 @@ export class Game {
       return;
     }
 
-    const mods = this.mods();
     const orbR = this.orbRadius();
     const maxR = pulseMaxRadius(orbR, this.w, this.h);
     const ringR = pulseRadius(progress, orbR, maxR, KISS);
     const gap = Math.abs(ringR - orbR);
     const errorMs = (progress - KISS) * this.period * 1000;
+    const windows = this.kissWindows();
 
     let kind: TapKind;
     if (progress <= KISS) {
-      if (gap > mods.goodGap) {
-        log("tap ignored — ring still far", { gapPx: Number(gap.toFixed(1)) });
+      if (gap > windows.goodGap) {
+        log("tap ignored — ring still far", { gapPx: Number(gap.toFixed(1)), goodGap: Number(windows.goodGap.toFixed(1)) });
         return;
       }
-      kind = gap <= mods.perfectGap ? "perfect" : "good";
+      kind = gap <= windows.perfectGap ? "perfect" : "good";
     } else if (errorMs <= 140) {
       kind = "perfect";
     } else if (errorMs <= 280) {
@@ -377,10 +388,10 @@ export class Game {
       const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
       const gap = Math.abs(ringR - this.orbRadius());
       const contracting = p >= pulseExpandEnd(KISS);
-      const mods = this.mods();
-      const nearKiss = contracting && p <= KISS + 0.08 && gap <= mods.goodGap;
+      const windows = this.kissWindows();
+      const nearKiss = contracting && p <= KISS + 0.08 && gap <= windows.goodGap;
       const voidPulse = this.pulseKind === "void";
-      this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / mods.goodGap, 0, 1) : 0;
+      this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
       const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
       drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
     }
@@ -515,7 +526,14 @@ export class Game {
         this.pulseIndex += 1;
         this.pulseKind = this.nextPulseKind();
         if (this.pulseKind === "void") this.audio.pulseCue("void");
-        log("pulse armed", { index: this.pulseIndex, kind: this.pulseKind });
+        const windows = this.kissWindows();
+        log("pulse armed", {
+          index: this.pulseIndex,
+          kind: this.pulseKind,
+          maxR: Number(pulseMaxRadius(this.orbRadius(), this.w, this.h).toFixed(1)),
+          perfectGap: Number(windows.perfectGap.toFixed(1)),
+          goodGap: Number(windows.goodGap.toFixed(1)),
+        });
       }
       return;
     }

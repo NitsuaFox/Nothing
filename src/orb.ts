@@ -12,8 +12,8 @@ export function pulseExpandEnd(kiss = KISS): number {
 }
 
 export function pulseMaxRadius(orbR: number, w: number, h: number): number {
-  const cap = Math.min(w, h) * 0.32;
-  return Math.min(cap, 28 + orbR * 4.2);
+  const short = Math.min(w, h);
+  return Math.max(orbR + 48, short * 0.26);
 }
 
 export function pulseRadius(
