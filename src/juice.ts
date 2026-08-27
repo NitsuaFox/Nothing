@@ -37,9 +37,9 @@ export class Juice {
     this.punchX += this.punchVX * dt;
     this.punchY += this.punchVY * dt;
 
-    this.shake = Math.max(0, this.shake - dt * 28);
-    this.flash = Math.max(0, this.flash - dt * 3.6);
-    this.invert = Math.max(0, this.invert - dt * 8);
+    this.shake = Math.max(0, this.shake - dt * 16);
+    this.flash = Math.max(0, this.flash - dt * 2.4);
+    this.invert = Math.max(0, this.invert - dt * 6);
 
     if (this.shockwaveMax > 0) {
       this.shockwave += dt * 1.35;
@@ -52,21 +52,21 @@ export class Juice {
 
   punch(kind: "perfect" | "good" | "miss"): void {
     if (kind === "perfect") {
-      this.hitstop = 0.032;
-      this.punchY -= 7;
-      this.shake = 7;
-      this.flash = 0.55;
+      this.hitstop = 0.048;
+      this.punchY -= 16;
+      this.shake = 18;
+      this.flash = 0.9;
     } else if (kind === "good") {
-      this.hitstop = 0.016;
-      this.punchY -= 3.5;
-      this.shake = 3.5;
-      this.flash = 0.28;
+      this.hitstop = 0.028;
+      this.punchY -= 10;
+      this.shake = 11;
+      this.flash = 0.5;
     } else {
-      this.hitstop = 0.042;
-      this.punchY += 5;
-      this.shake = 9;
-      this.flash = 0.18;
-      this.invert = 0.22;
+      this.hitstop = 0.05;
+      this.punchY += 10;
+      this.shake = 14;
+      this.flash = 0.28;
+      this.invert = 0.28;
     }
   }
 

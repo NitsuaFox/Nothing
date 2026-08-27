@@ -2,14 +2,23 @@ import { AudioEngine, type TapKind } from "./audio";
 import { log } from "./debug";
 import { Juice } from "./juice";
 import { clamp, lerp } from "./math";
-import { baseOrbRadius, drawOrb, drawPulseRing, pulseMaxRadius, pulseRadius } from "./orb";
+import {
+  KISS,
+  baseOrbRadius,
+  drawOrb,
+  drawPulseRing,
+  pulseExpandEnd,
+  pulseMaxRadius,
+  pulseRadius,
+} from "./orb";
 import { Particles } from "./particles";
 import type { Phase } from "./types";
 
 const BEST_KEY = "nothing:best";
-const KISS = 0.82;
 const BANG_MASS = 28;
 const TITLE_FADE_END = 4.6;
+const PERFECT_GAP = 16;
+const GOOD_GAP = 36;
 
 const PHASE_AT: { phase: Phase; min: number }[] = [
   { phase: "singularity", min: 22 },
@@ -85,6 +94,9 @@ export class Game {
   squashX = 1;
   squashY = 1;
   densify = 0;
+  hitLabel = "";
+  hitLabelLife = 0;
+  windowGlow = 0;
 
   muted = false;
 
@@ -112,7 +124,7 @@ export class Game {
       return;
     }
 
-    await this.audio.unlock();
+    void this.audio.unlock();
 
     if (this.banging) {
       if (this.bangT > 2.1) {
@@ -132,9 +144,9 @@ export class Game {
       this.awaitingFirstPulse = false;
       this.cycleStart = this.gameTime;
       this.hitThisCycle = true;
-      this.applyTap("perfect", 0);
+      this.applyTap("perfect", 0, 0);
       log("first tap — universe begins");
-      this.beginNextCycle(0.08);
+      this.beginNextCycle(0.12);
       return;
     }
 
@@ -143,20 +155,40 @@ export class Game {
       return;
     }
 
+    if (this.gameTime < this.cycleStart) {
+      log("tap ignored — between pulses");
+      return;
+    }
+
     const progress = this.cycleProgress();
+    const expandEnd = pulseExpandEnd(KISS);
+    if (progress < expandEnd) {
+      log("tap ignored — ring still expanding", { progress: Number(progress.toFixed(3)) });
+      return;
+    }
+
+    const orbR = this.orbRadius();
+    const maxR = pulseMaxRadius(orbR, this.w, this.h);
+    const ringR = pulseRadius(progress, orbR, maxR, KISS);
+    const gap = Math.abs(ringR - orbR);
     const errorMs = (progress - KISS) * this.period * 1000;
-    const perfectMs = this.perfectWindowMs();
-    const goodMs = perfectMs * 2.35;
-    const abs = Math.abs(errorMs);
 
     let kind: TapKind;
-    if (abs <= perfectMs / 2) kind = "perfect";
-    else if (abs <= goodMs / 2) kind = "good";
-    else kind = "miss";
+    if (progress <= KISS) {
+      if (gap <= PERFECT_GAP) kind = "perfect";
+      else if (gap <= GOOD_GAP) kind = "good";
+      else kind = "miss";
+    } else if (errorMs <= 100) {
+      kind = "perfect";
+    } else if (errorMs <= 200) {
+      kind = "good";
+    } else {
+      kind = "miss";
+    }
 
     this.hitThisCycle = true;
-    this.applyTap(kind, errorMs);
-    this.beginNextCycle(kind === "miss" ? 0.16 : 0.05);
+    this.applyTap(kind, errorMs, gap);
+    this.beginNextCycle(kind === "miss" ? 0.18 : 0.1);
   }
 
   toggleMute(): void {
@@ -171,6 +203,7 @@ export class Game {
 
     this.updateTitle();
     this.comboPop = Math.max(0, this.comboPop - dt * 2.8);
+    this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.squashX = lerp(this.squashX, 1, 1 - Math.pow(0.0002, dt));
     this.squashY = lerp(this.squashY, 1, 1 - Math.pow(0.0002, dt));
     const timeScale = frozen ? 0.08 : this.phase === "singularity" ? 0.55 : this.phase === "bang" ? 0.7 : 1;
@@ -205,16 +238,18 @@ export class Game {
 
     const ox = this.juice.offsetX;
     const oy = this.juice.offsetY;
-    const cx = this.cx + ox;
-    const cy = this.cy + oy;
+    const cx = this.cx;
+    const cy = this.cy;
     const orbR = this.visualOrbRadius();
+    this.windowGlow = 0;
 
-    this.particles.draw(ctx);
+    ctx.save();
+    ctx.translate(ox, oy);
 
     if (this.started && !this.banging) {
       ctx.beginPath();
       ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.strokeStyle = "rgba(255,255,255,0.14)";
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -223,8 +258,11 @@ export class Game {
       const p = this.cycleProgress();
       const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
       const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
-      const nearKiss = Math.abs(p - KISS) < 0.08;
-      const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss ? 1 : 0.72;
+      const gap = Math.abs(ringR - this.orbRadius());
+      const contracting = p >= pulseExpandEnd(KISS);
+      const nearKiss = contracting && p <= KISS + 0.08 && gap <= GOOD_GAP;
+      this.windowGlow = nearKiss ? clamp(1 - gap / GOOD_GAP, 0, 1) : 0;
+      const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss ? 1 : 0.7;
       drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss);
     }
 
@@ -234,13 +272,16 @@ export class Game {
       cy,
       orbR,
       this.phase,
-      1 + Math.sin(this.wallTime * 2.2) * 0.055,
+      1 + Math.sin(this.wallTime * 2.2) * 0.055 + this.windowGlow * 0.12,
       this.squashX,
       this.squashY,
-      this.densify,
+      this.densify + this.windowGlow * 0.35,
     );
 
-    this.juice.drawOverlays(ctx, this.w, this.h, cx, cy);
+    this.particles.draw(ctx);
+    ctx.restore();
+
+    this.juice.drawOverlays(ctx, this.w, this.h, cx + ox, cy + oy);
     this.drawHud(ctx);
     this.drawMute(ctx);
   }
@@ -248,10 +289,6 @@ export class Game {
   private cycleProgress(): number {
     if (this.period <= 0) return 1;
     return clamp((this.gameTime - this.cycleStart) / this.period, 0, 1.5);
-  }
-
-  private perfectWindowMs(): number {
-    return lerp(90, 46, clamp(this.combo / 28, 0, 1));
   }
 
   private orbRadius(): number {
@@ -269,40 +306,48 @@ export class Game {
     return 7;
   }
 
-  private applyTap(kind: TapKind, errorMs: number): void {
+  private applyTap(kind: TapKind, errorMs: number, gap: number): void {
+    const r = this.orbRadius();
+    this.hitLabel = kind === "perfect" ? "PERFECT" : kind === "good" ? "GOOD" : "MISS";
+    this.hitLabelLife = 0.7;
+
     if (kind === "perfect") {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
       const add = 1 + Math.min(this.combo, 24) * 0.04;
       this.mass += add;
       this.massCreated += add;
-      this.squashX = 1.18;
-      this.squashY = 0.82;
-      this.particles.spawnBurst(this.cx, this.cy, 14 + Math.min(this.combo, 18), 220 + this.combo * 8);
+      this.squashX = 1.28;
+      this.squashY = 0.72;
+      this.particles.spawnBurst(this.cx, this.cy, 22 + Math.min(this.combo, 20), 280 + this.combo * 10, r);
       this.comboPop = 1;
     } else if (kind === "good") {
-      const add = 0.45;
+      this.combo += 1;
+      this.peakCombo = Math.max(this.peakCombo, this.combo);
+      const add = 0.55;
       this.mass += add;
       this.massCreated += add;
-      this.squashX = 1.08;
-      this.squashY = 0.9;
-      this.particles.spawnBurst(this.cx, this.cy, 8, 160);
-      this.comboPop = 0.7;
+      this.squashX = 1.14;
+      this.squashY = 0.84;
+      this.particles.spawnBurst(this.cx, this.cy, 14, 200, r);
+      this.comboPop = 0.85;
     } else {
       this.combo = 0;
-      this.mass = Math.max(0, this.mass - 1.15);
-      this.squashX = 0.82;
-      this.squashY = 1.18;
-      this.particles.vacuumToward(this.cx, this.cy);
-      this.particles.spawnBurst(this.cx, this.cy, 5, 70);
+      this.mass = Math.max(0, this.mass - 0.45);
+      this.squashX = 0.78;
+      this.squashY = 1.22;
+      this.particles.vacuumToward(this.cx, this.cy, ["orbit"]);
+      this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
     }
 
     this.score = Math.floor(this.massCreated * 10 + this.peakCombo * 5);
-    this.period = lerp(1.12, 0.52, clamp(this.combo / 32, 0, 1));
+    this.period = lerp(1.18, 0.58, clamp(this.combo / 32, 0, 1));
     this.juice.punch(kind);
     this.audio.tap(kind, this.combo);
 
-    log(`tap kind=${kind} combo=${this.combo} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score}`);
+    log(
+      `tap kind=${kind} combo=${this.combo} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score}`,
+    );
 
     if (this.mass >= BANG_MASS && !this.banging) {
       this.startBang();
@@ -320,7 +365,7 @@ export class Game {
     const progress = this.cycleProgress();
     if (progress >= 1 && !this.hitThisCycle) {
       this.hitThisCycle = true;
-      this.applyTap("miss", (1 - KISS) * this.period * 1000);
+      this.applyTap("miss", (1 - KISS) * this.period * 1000, 999);
       log("pulse timeout miss");
       this.beginNextCycle(0.12);
     }
@@ -423,13 +468,20 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    if (this.combo >= 2 && !this.banging) {
-      const s = 1 + this.comboPop * 0.45;
+    if (!this.banging && this.hitLabelLife > 0) {
+      ctx.globalAlpha = clamp(this.hitLabelLife / 0.35, 0, 1);
+      ctx.font = "700 14px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText(this.hitLabel, this.cx, this.cy - this.orbRadius() - 28);
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.combo >= 1 && !this.banging) {
+      const s = 1 + this.comboPop * 0.55;
       ctx.save();
-      ctx.translate(this.cx, this.cy + this.orbRadius() + 36);
+      ctx.translate(this.cx, this.cy + this.orbRadius() + 38);
       ctx.scale(s, s);
-      ctx.font = "700 28px ui-sans-serif, system-ui, sans-serif";
-      ctx.globalAlpha = 0.92;
+      ctx.font = "700 32px ui-sans-serif, system-ui, sans-serif";
+      ctx.globalAlpha = 0.95;
       ctx.fillText(String(this.combo), 0, 0);
       ctx.restore();
     }
@@ -465,7 +517,7 @@ export class Game {
     const cx = x + s / 2;
     const cy = y + s / 2;
     ctx.save();
-    ctx.globalAlpha = 0.28;
+    ctx.globalAlpha = 0.42;
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
     ctx.lineWidth = 1.4;

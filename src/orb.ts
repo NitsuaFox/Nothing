@@ -5,9 +5,15 @@ export function baseOrbRadius(mass: number): number {
   return 7 + mass * 0.42;
 }
 
+export const KISS = 0.8;
+
+export function pulseExpandEnd(kiss = KISS): number {
+  return kiss * 0.48;
+}
+
 export function pulseMaxRadius(orbR: number, w: number, h: number): number {
-  const cap = Math.min(w, h) * 0.28;
-  return Math.min(cap, 22 + orbR * 3.6);
+  const cap = Math.min(w, h) * 0.32;
+  return Math.min(cap, 28 + orbR * 4.2);
 }
 
 export function pulseRadius(
@@ -16,19 +22,19 @@ export function pulseRadius(
   maxR: number,
   kiss: number,
 ): number {
-  const expandEnd = kiss * 0.58;
+  const expandEnd = pulseExpandEnd(kiss);
   if (progress <= expandEnd) {
     const t = progress / expandEnd;
-    const e = 1 - Math.pow(1 - t, 3);
-    return lerp(orbR * 1.2, maxR, e);
+    const e = 1 - Math.pow(1 - t, 2);
+    return lerp(orbR * 1.15, maxR, e);
   }
   if (progress <= kiss) {
     const t = (progress - expandEnd) / (kiss - expandEnd);
-    const e = t * t * t;
+    const e = t * t;
     return lerp(maxR, orbR, e);
   }
   const t = (progress - kiss) / Math.max(0.0001, 1 - kiss);
-  return lerp(orbR, orbR * 0.15, t);
+  return lerp(orbR, orbR * 0.2, t);
 }
 
 export function drawOrb(
@@ -103,6 +109,6 @@ export function drawPulseRing(
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-  ctx.lineWidth = kissHint ? 2.2 : 1.35;
+  ctx.lineWidth = kissHint ? 3.4 : 1.6;
   ctx.stroke();
 }

@@ -57,9 +57,9 @@ export class AudioEngine {
       this.droneGain.connect(this.master);
       this.drone.start();
 
-      await this.ctx.resume();
       this.unlocked = true;
       log("audio unlock");
+      void this.ctx.resume();
     } catch (error) {
       log("audio unlock failed", { error: String(error) });
     }

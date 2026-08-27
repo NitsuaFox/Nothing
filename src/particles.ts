@@ -19,18 +19,19 @@ export type Particle = {
 export class Particles {
   list: Particle[] = [];
 
-  spawnBurst(cx: number, cy: number, count: number, speed: number): void {
+  spawnBurst(cx: number, cy: number, count: number, speed: number, radius = 8): void {
     for (let i = 0; i < count; i++) {
       const angle = rand(0, Math.PI * 2);
-      const mag = rand(speed * 0.45, speed);
+      const mag = rand(speed * 0.55, speed);
+      const dist = radius + rand(2, 10);
       this.list.push({
-        x: cx,
-        y: cy,
+        x: cx + Math.cos(angle) * dist,
+        y: cy + Math.sin(angle) * dist,
         vx: Math.cos(angle) * mag,
         vy: Math.sin(angle) * mag,
-        life: rand(0.28, 0.7),
-        maxLife: 0.7,
-        size: rand(1.2, 3.2),
+        life: rand(0.45, 1.05),
+        maxLife: 1.05,
+        size: rand(1.8, 4.4),
         kind: "burst",
         angle,
         orbitR: 0,
@@ -61,16 +62,17 @@ export class Particles {
     }
   }
 
-  vacuumToward(cx: number, cy: number): void {
+  vacuumToward(cx: number, cy: number, kinds: ParticleKind[] = ["orbit", "burst"]): void {
     for (const p of this.list) {
       if (p.kind === "star") continue;
+      if (!kinds.includes(p.kind)) continue;
       p.kind = "vacuum";
-      p.life = Math.min(p.life, 0.45);
-      p.maxLife = 0.45;
+      p.life = Math.min(p.life, 0.55);
+      p.maxLife = 0.55;
       const dx = cx - p.x;
       const dy = cy - p.y;
-      p.vx = dx * 4;
-      p.vy = dy * 4;
+      p.vx = dx * 3.2;
+      p.vy = dy * 3.2;
     }
   }
 
@@ -133,8 +135,8 @@ export class Particles {
       }
 
       if (p.kind === "burst") {
-        p.vx *= Math.pow(0.12, dt);
-        p.vy *= Math.pow(0.12, dt);
+        p.vx *= Math.pow(0.28, dt);
+        p.vy *= Math.pow(0.28, dt);
       }
 
       if (p.kind === "star") {
