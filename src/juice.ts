@@ -90,13 +90,6 @@ export class Juice {
     log("juice streak", { shake: this.shake });
   }
 
-  relicPick(): void {
-    this.hitstop = 0.03;
-    this.shake = 3;
-    this.flash = 0.36;
-    this.ring = 0.001;
-  }
-
   silence(): void {
     this.hitstop = 0.018;
     this.punchY += 2;

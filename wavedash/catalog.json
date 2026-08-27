@@ -1,0 +1,122 @@
+{
+  "stats": [
+    { "identifier": "RUNS", "display_name": "Runs" },
+    { "identifier": "BEST_SCORE", "display_name": "Best Score" },
+    { "identifier": "BEST_DEPTH", "display_name": "Best Depth" },
+    { "identifier": "BEST_COMBO", "display_name": "Best Combo" },
+    { "identifier": "TOTAL_PERFECTS", "display_name": "Perfects" },
+    { "identifier": "TOTAL_SILENCES", "display_name": "Silences" },
+    { "identifier": "UNIVERSES", "display_name": "Universes" },
+    { "identifier": "DISCOVERIES", "display_name": "Discoveries" }
+  ],
+  "achievements": [
+    {
+      "identifier": "FIRST_LIGHT",
+      "display_name": "First Light",
+      "description": "Tap once. A universe begins.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "SPARK",
+      "display_name": "Spark",
+      "description": "Grow the first spark of matter.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "STAR",
+      "display_name": "Star",
+      "description": "A star holds in the dark.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "GIANT",
+      "display_name": "Giant",
+      "description": "The orb becomes a giant.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "SINGULARITY",
+      "display_name": "Singularity",
+      "description": "Collapse everything into a point.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "A_UNIVERSE",
+      "display_name": "A Universe",
+      "description": "Fill a universe until it bangs.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "SILENCE",
+      "display_name": "Silence",
+      "description": "Let a void pulse pass.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "VOID_TAKEN",
+      "display_name": "Void",
+      "description": "Tap a void pulse and pay for it.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "RESONANCE",
+      "display_name": "Resonance",
+      "description": "String perfects until the chord answers.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "STREAK_X2",
+      "display_name": "Hot Streak",
+      "description": "Hold eight perfects. Score ×2.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "STREAK_X3",
+      "display_name": "Blaze",
+      "description": "Hold twelve perfects. Score ×3.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "DEEPER",
+      "display_name": "Deeper",
+      "description": "Descend into a second universe.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "DEPTH_5",
+      "display_name": "Five Deep",
+      "description": "Reach depth 5.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "COMBO_25",
+      "display_name": "Twenty Five",
+      "description": "Carry a combo to 25.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "CATALOG",
+      "display_name": "Catalog",
+      "description": "Find every discovery.",
+      "stat_requirement": null
+    },
+    {
+      "identifier": "RUNS_10",
+      "display_name": "Ten Voids",
+      "description": "End 10 runs.",
+      "stat_requirement": { "stat": "RUNS", "threshold": 10 }
+    },
+    {
+      "identifier": "SCORE_1K",
+      "display_name": "A Thousand",
+      "description": "Score 1,000 in a single run.",
+      "stat_requirement": { "stat": "BEST_SCORE", "threshold": 1000 }
+    },
+    {
+      "identifier": "SCORE_10K",
+      "display_name": "Ten Thousand",
+      "description": "Score 10,000 in a single run.",
+      "stat_requirement": { "stat": "BEST_SCORE", "threshold": 10000 }
+    }
+  ]
+}

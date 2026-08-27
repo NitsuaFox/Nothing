@@ -31,10 +31,9 @@ export function scoreGain(opts: {
   combo: number;
   perfectStreak: number;
   depth: number;
-  relicMul: number;
 }): { gained: number; streak: number } {
   const combo = Math.max(1, opts.combo);
   const streak = streakMul(opts.perfectStreak);
-  const gained = Math.max(0, Math.round(opts.base * combo * streak * opts.depth * opts.relicMul));
+  const gained = Math.max(0, Math.round(opts.base * combo * streak * opts.depth));
   return { gained, streak };
 }
