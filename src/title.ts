@@ -114,7 +114,7 @@ export function drawTitleCards(
   const minDim = Math.min(w, h);
 
   if (look.studioAlpha > 0.01) {
-    const maxSize = clamp(minDim * 0.028, 13, 22);
+    const maxSize = clamp(minDim * 0.05, 22, 42);
     ctx.globalAlpha = look.studioAlpha;
     const { size, tracking } = fitTrackedSize(ctx, "WHATTODOGAMES", 500, maxSize, w * 0.86, 0.42);
     ctx.font = font(500, size);

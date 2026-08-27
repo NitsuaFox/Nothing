@@ -404,7 +404,7 @@ export class Game {
       ctx.globalAlpha = this.intro.orbAlpha;
       ctx.translate(ox, oy);
 
-      if (this.started && !this.banging && this.mode === "play") {
+      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed) {
         ctx.beginPath();
         ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(255,255,255,0.14)";
@@ -962,6 +962,7 @@ export class Game {
     this.hudRevealed = false;
     this.hudHoldUntilPulse = true;
     this.hudRevealAt = Number.POSITIVE_INFINITY;
+    this.menuPromptAlpha = 0;
     this.applyTap("perfect", 0, 0);
     this.hitLabel = "";
     this.hitLabelLife = 0;
