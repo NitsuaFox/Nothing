@@ -172,7 +172,6 @@ export class Game {
       bestY: pad + 58,
       depthY: pad + 22,
       whisperY: pad + 72,
-      hitY: this.cy - this.orbRadius() - 72,
       comboX: pad,
       comboY: this.h - pad - 56,
       massW,
@@ -1047,7 +1046,7 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play") {
+    if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play" && this.hitLabelLife <= 0) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7);
       ctx.font = font(600, 16);
@@ -1059,7 +1058,7 @@ export class Game {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.hitLabelLife / 0.4, 0, 1);
       ctx.font = font(700, 22);
-      strokeText(ctx, this.hitLabel, this.cx, hud.hitY, 6);
+      strokeText(ctx, this.hitLabel, this.cx, hud.whisperY, 6);
       ctx.globalAlpha = 1;
     }
 
