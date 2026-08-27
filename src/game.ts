@@ -24,15 +24,38 @@ import {
   saveHidepth,
   saveHiscore,
   saveRuns,
+  snapshotOf,
   type DiscoveryId,
+  type ProgressSnapshot,
 } from "./progress";
 import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
 import { Sky } from "./sky";
 import type { Phase, PulseKind } from "./types";
-import { submitScore } from "./wavedash";
+import {
+  hostMuteState,
+  onBang,
+  onCombo,
+  onDescend,
+  onDiscovery,
+  onKiss,
+  onRunOver,
+  onSilence,
+  onStreak,
+  persistProgress,
+  platform,
+  setPresence,
+  toggleHostMute,
+} from "./wavedash";
 
 const TITLE_FADE_END = 4.6;
 const MAX_HEARTS = 3;
+
+export type SafeArea = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
 
 function loadBest(): number {
   return loadHiscore();
@@ -140,6 +163,9 @@ export class Game {
   windowGlow = 0;
 
   muted = false;
+  safe: SafeArea = { top: 0, right: 0, bottom: 0, left: 0 };
+  platToast = "";
+  platToastLife = 0;
 
   constructor() {
     log("game construct", {
@@ -151,42 +177,66 @@ export class Game {
     });
   }
 
-  resize(w: number, h: number): void {
+  resize(w: number, h: number, safe?: SafeArea): void {
     this.w = w;
     this.h = h;
     this.cx = w / 2;
     this.cy = h / 2;
+    if (safe) this.safe = safe;
     const hud = this.hudLayout();
     log("resize", {
       w,
       h,
+      compact: hud.compact,
+      ui: Number(hud.ui.toFixed(2)),
+      safe: this.safe,
       remnants: this.sky.remnants.length,
       found: this.found.size,
-      score: { x: hud.scoreX, y: hud.scoreY },
-      combo: { x: hud.comboX, y: hud.comboY },
+      score: { x: hud.scoreX, y: hud.scoreY, size: hud.scoreSize },
+      combo: { x: hud.comboX, y: hud.comboY, size: hud.comboSize },
       mass: { x: hud.massX, y: hud.massY, w: hud.massW },
       hearts: { x: hud.heartX, y: hud.heartY },
+      mute: { x: hud.muteX, y: hud.muteY, s: hud.muteSize },
     });
   }
 
   private hudLayout() {
-    const pad = Math.max(28, Math.round(Math.min(this.w, this.h) * 0.045));
-    const massW = Math.min(Math.round(this.w * 0.32), 360);
-    const mute = this.muteRect();
+    const compact = this.w < 560 || this.h < 520;
+    const ui = clamp(Math.min(this.w, this.h) / 720, 0.72, 1.12);
+    const coarse =
+      typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    const muteSize = coarse || compact ? 48 : 36;
+    const pad = Math.max(compact ? 16 : 24, Math.round(Math.min(this.w, this.h) * (compact ? 0.038 : 0.045)));
+    const muteX = this.w - this.safe.right - muteSize - 8;
+    const muteY = this.safe.top + 8;
+    const scoreSize = compact ? Math.round(28 * ui) : 44;
+    const comboSize = compact ? Math.round(32 * ui) : 48;
+    const massY = this.h - this.safe.bottom - (compact ? 16 : 22);
+    const comboY = compact ? massY - 18 - comboSize * 0.38 : this.h - this.safe.bottom - 56;
+    const massW = compact ? Math.min(Math.round(this.w * 0.34), 150) : Math.min(Math.round(this.w * 0.32), 360);
     return {
+      compact,
+      ui,
       pad,
-      scoreX: pad,
-      scoreY: pad + 22,
-      bestY: pad + 58,
-      depthY: pad + 22,
-      whisperY: pad + 72,
-      comboX: pad,
-      comboY: this.h - pad - 56,
+      muteX,
+      muteY,
+      muteSize,
+      scoreX: this.safe.left + pad,
+      scoreY: this.safe.top + pad + (compact ? 18 : 22),
+      bestY: this.safe.top + pad + (compact ? 44 : 58),
+      depthY: this.safe.top + pad + (compact ? 18 : 22),
+      whisperY: this.safe.top + pad + (compact ? 56 : 72),
+      comboX: this.safe.left + pad,
+      comboY,
+      comboSize,
+      scoreSize,
       massW,
       massX: this.cx - massW / 2,
-      massY: this.h - pad - 10,
-      heartX: mute.x - 18,
-      heartY: mute.y + mute.s / 2,
+      massY,
+      massH: compact ? 5 : 6,
+      heartX: muteX - 18,
+      heartY: muteY + muteSize / 2,
+      tapY: this.h - this.safe.bottom - (compact ? 22 : 36),
     };
   }
 
@@ -202,8 +252,8 @@ export class Game {
   }
 
   muteRect(): { x: number; y: number; s: number } {
-    const s = 44;
-    return { x: this.w - s - 10, y: 10, s };
+    const hud = this.hudLayout();
+    return { x: hud.muteX, y: hud.muteY, s: hud.muteSize };
   }
 
   async tap(x: number, y: number): Promise<void> {
@@ -222,7 +272,7 @@ export class Game {
       this.universeFresh = false;
       this.applyTap("perfect", 0, 0);
       this.beginNextCycle(1.6);
-      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts });
+      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts, user: platform.username, from: "dead" });
       return;
     }
 
@@ -245,7 +295,8 @@ export class Game {
       this.awaitingFirstPulse = false;
       this.universeFresh = false;
       this.applyTap("perfect", 0, 0);
-      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts });
+      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts, user: platform.username });
+      setPresence("DEPTH 1", platform.username);
       this.beginNextCycle(1.6);
       return;
     }
@@ -303,7 +354,45 @@ export class Game {
   }
 
   toggleMute(): void {
+    if (platform.hosted && hostMuteState() !== null) {
+      toggleHostMute();
+      return;
+    }
     this.muted = this.audio.toggleMute();
+  }
+
+  setMutedFromHost(muted: boolean): void {
+    this.muted = muted;
+    this.audio.setMuted(muted);
+    log("mute from host", { muted });
+  }
+
+  toastUnlock(title: string, id: string): void {
+    this.platToast = title;
+    this.platToastLife = 1.8;
+    log("unlock toast", { id, title });
+  }
+
+  snapshot(): ProgressSnapshot {
+    return snapshotOf(this.found, this.best, this.bestDepth, this.runsPlayed);
+  }
+
+  applySnapshot(snap: ProgressSnapshot): void {
+    this.found = new Set(snap.found);
+    this.best = Math.max(this.best, snap.hiscore);
+    this.bestDepth = Math.max(this.bestDepth, snap.hidepth);
+    this.runsPlayed = Math.max(this.runsPlayed, snap.runs);
+    log("cloud snapshot applied", {
+      found: this.found.size,
+      best: this.best,
+      bestDepth: this.bestDepth,
+      runs: this.runsPlayed,
+    });
+  }
+
+  /** Debug: end the run as if the void took you. `window.nothing.endRun()` */
+  endRun(reason = "debug"): void {
+    this.die(reason);
   }
 
   movePointer(x: number, y: number): void {
@@ -320,6 +409,7 @@ export class Game {
     this.comboPop = Math.max(0, this.comboPop - dt * 2.8);
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.whisperLife = Math.max(0, this.whisperLife - dt);
+    this.platToastLife = Math.max(0, this.platToastLife - dt);
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
     this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);
@@ -452,6 +542,8 @@ export class Game {
       this.sky.plantBurst(this.w, this.h, this.cx, this.cy, this.perfectStreak % mods.resonanceEvery === 0 ? 3 : 1, 40 + this.combo * 3);
       this.comboPop = 1;
       this.grantScore(12, prevPerfect);
+      onKiss("perfect");
+      onCombo(this.combo);
       if (this.perfectStreak > 0 && this.perfectStreak % mods.resonanceEvery === 0) {
         this.hitLabel = "RESONANCE";
         this.mass += 0.6 * mods.hitMassMul;
@@ -474,6 +566,8 @@ export class Game {
       this.sky.plantBurst(this.w, this.h, this.cx, this.cy, 1, 28);
       this.comboPop = 0.85;
       this.grantScore(6, prevPerfect);
+      onKiss("good");
+      onCombo(this.combo);
     } else {
       this.combo = 0;
       this.perfectStreak = 0;
@@ -483,6 +577,7 @@ export class Game {
       this.particles.vacuumToward(this.cx, this.cy, ["orbit"]);
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
       this.lastGain = 0;
+      onKiss("miss");
       this.loseLife("miss");
     }
 
@@ -566,6 +661,7 @@ export class Game {
     this.audio.silence();
     this.grantScore(8 + mods.silenceCombo * 6, this.perfectStreak);
     this.discover("silence");
+    onSilence();
     log("silence", {
       silences: this.silences,
       combo: this.combo,
@@ -601,6 +697,8 @@ export class Game {
     this.whisper = DISCOVERY_LABEL[id];
     this.whisperLife = 1.8;
     log("discovery", { id, label: DISCOVERY_LABEL[id], found: this.found.size });
+    onDiscovery(id, this.found.size);
+    persistProgress();
   }
 
   private setPhaseWhisper(phase: Phase): void {
@@ -660,6 +758,8 @@ export class Game {
     this.audio.bang();
     this.particles.spawnStars(this.cx, this.cy, 90);
     this.sky.collapse();
+    onBang(this.universes);
+    setPresence("BANG", `DEPTH ${this.depth}`);
     log("bang", {
       score: this.bangScore,
       depth: this.depth,
@@ -737,6 +837,7 @@ export class Game {
       this.mulFlash = 1.15;
       this.juice.streak();
       this.audio.rankUp();
+      onStreak(stepped);
       log("streak", {
         mul: stepped,
         perfects: this.perfectStreak,
@@ -793,7 +894,14 @@ export class Game {
     this.sky.collapse();
     this.juice.voidHit();
     this.audio.voidHit();
-    submitScore(this.score);
+    onRunOver({
+      score: this.score,
+      depth: this.depth,
+      combo: this.peakCombo,
+      found: this.found.size,
+      reason,
+    });
+    persistProgress();
     log("run over", {
       reason,
       score: this.score,
@@ -807,7 +915,7 @@ export class Game {
   }
 
   private startRun(): void {
-    log("run start");
+    log("run start", { user: platform.username, hosted: platform.hosted });
     this.mode = "play";
     this.depth = 1;
     this.hearts = MAX_HEARTS;
@@ -832,6 +940,7 @@ export class Game {
     this.juice.reset();
     this.lastGain = 0;
     this.mulFlash = 0;
+    setPresence("DEPTH 1", platform.username);
   }
 
   private descend(): void {
@@ -861,36 +970,96 @@ export class Game {
     this.universeFresh = false;
     this.applyTap("perfect", 0, 0);
     this.beginNextCycle(0.45);
+    onDescend(this.depth, this.combo);
     log("first light", { depth: this.depth, combo: this.combo, pStreak: this.perfectStreak, auto: true });
   }
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
+    const hud = this.hudLayout();
+    const scoreSize = hud.compact ? Math.round(48 * hud.ui) : 72;
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
-    ctx.font = font(700, 72);
-    strokeText(ctx, String(this.score), this.cx, this.cy - 64, 10);
-    ctx.font = font(600, 18);
+    ctx.font = font(700, scoreSize);
+    strokeText(ctx, String(this.score), this.cx, this.cy - (hud.compact ? 90 : 64), 10);
+    ctx.font = font(600, hud.compact ? 14 : 18);
     ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + 8);
+    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + (hud.compact ? -28 : 8));
     ctx.globalAlpha = 0.45;
-    ctx.font = font(500, 16);
-    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + 40);
+    ctx.font = font(500, hud.compact ? 13 : 16);
+    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + (hud.compact ? -8 : 40));
+    if (platform.username || platform.myRank) {
+      const who = platform.username || "";
+      const rank = platform.myRank ? `#${platform.myRank}` : "";
+      const ident = [who, rank].filter(Boolean).join("   ·   ");
+      ctx.fillText(ident, this.cx, this.cy + (hud.compact ? 10 : 62));
+    }
 
-    ctx.font = font(500, 13);
-    const gap = Math.min(92, (this.w - 80) / DISCOVERY_ORDER.length);
-    const rowW = gap * (DISCOVERY_ORDER.length - 1);
-    const x0 = this.cx - rowW / 2;
-    DISCOVERY_ORDER.forEach((id, i) => {
-      const known = this.found.has(id);
-      ctx.globalAlpha = known ? 0.7 : 0.22;
-      ctx.fillText(known ? DISCOVERY_LABEL[id] : "·", x0 + i * gap, this.cy + 84);
-    });
+    this.drawDiscoveries(ctx, this.cy + (hud.compact ? 36 : 96));
+    if (hud.compact || this.w < 900) {
+      this.drawBoard(ctx, {
+        x: this.cx,
+        y: this.cy + (hud.compact ? 92 : 142),
+        align: "center",
+        alpha: 0.55,
+        limit: hud.compact ? 4 : 6,
+        rowH: hud.compact ? 16 : 18,
+      });
+    } else {
+      this.drawBoard(ctx, {
+        x: this.w - this.safe.right - hud.pad,
+        y: this.cy - 70,
+        align: "right",
+        alpha: 0.62,
+        limit: 8,
+        rowH: 20,
+      });
+    }
 
     ctx.globalAlpha = 0.4;
+    ctx.textAlign = "center";
     ctx.font = font(500, 16);
-    ctx.fillText("TAP  TO  BEGIN", this.cx, this.h - 48);
+    ctx.fillText("TAP  TO  BEGIN", this.cx, hud.tapY);
+    ctx.restore();
+  }
+
+  private drawDiscoveries(ctx: CanvasRenderingContext2D, y: number): void {
+    const hud = this.hudLayout();
+    const cols = hud.compact || this.w < 720 ? 4 : 8;
+    const rows = Math.ceil(DISCOVERY_ORDER.length / cols);
+    const gapX = cols === 8 ? Math.min(92, (this.w - 80) / Math.max(1, cols - 1)) : Math.min(84, (this.w - 48) / cols);
+    const gapY = 18;
+    ctx.font = font(500, hud.compact ? 11 : 13);
+    for (let row = 0; row < rows; row++) {
+      const slice = DISCOVERY_ORDER.slice(row * cols, row * cols + cols);
+      const rowW = gapX * (slice.length - 1);
+      const x0 = this.cx - rowW / 2;
+      slice.forEach((id, i) => {
+        const known = this.found.has(id);
+        ctx.globalAlpha = known ? 0.7 : 0.22;
+        ctx.fillText(known ? DISCOVERY_LABEL[id] : "·", x0 + i * gapX, y + row * gapY);
+      });
+    }
+  }
+
+  private drawBoard(
+    ctx: CanvasRenderingContext2D,
+    opts: { x: number; y: number; align: "center" | "right" | "left"; alpha: number; limit: number; rowH: number },
+  ): void {
+    const rows = platform.board.slice(0, opts.limit);
+    if (rows.length === 0) return;
+    ctx.save();
+    ctx.textAlign = opts.align;
+    ctx.textBaseline = "middle";
+    ctx.font = font(500, Math.max(11, opts.rowH - 4));
+    rows.forEach((row, i) => {
+      const mine = row.mine;
+      ctx.globalAlpha = mine ? Math.min(1, opts.alpha + 0.25) : opts.alpha * (row.friend ? 1 : 0.85);
+      const mark = mine ? "·" : row.friend ? "*" : " ";
+      const line = `${row.rank}  ${row.name}  ${row.score}${mark === " " ? "" : ` ${mark}`}`;
+      ctx.fillText(line, opts.x, opts.y + i * opts.rowH);
+    });
     ctx.restore();
   }
 
@@ -912,30 +1081,57 @@ export class Game {
     if (this.titleAlpha > 0.01 && !this.banging && !this.started) {
       ctx.textAlign = "center";
       ctx.globalAlpha = this.titleAlpha;
-      ctx.font = font(500, 18);
+      ctx.font = font(500, hud.compact ? 16 : 18);
       ctx.fillText("N O T H I N G", this.cx, this.cy - 52);
+      if (platform.username) {
+        ctx.globalAlpha = this.titleAlpha * 0.45;
+        ctx.font = font(500, 13);
+        ctx.fillText(platform.username, this.cx, this.cy - 28);
+      }
       ctx.globalAlpha = 1;
+    }
+
+    if (this.mode === "play" && !this.started && !this.banging && platform.board.length > 0) {
+      if (hud.compact) {
+        this.drawBoard(ctx, {
+          x: this.cx,
+          y: this.h - this.safe.bottom - 88,
+          align: "center",
+          alpha: 0.28,
+          limit: 3,
+          rowH: 16,
+        });
+      } else {
+        this.drawBoard(ctx, {
+          x: this.w - this.safe.right - hud.pad,
+          y: this.safe.top + 72,
+          align: "right",
+          alpha: 0.32,
+          limit: 6,
+          rowH: 18,
+        });
+      }
     }
 
     if (this.mode === "play" && this.started && !this.banging) {
       ctx.textAlign = "left";
       ctx.globalAlpha = 0.92;
-      ctx.font = font(800, 44);
+      ctx.font = font(800, hud.scoreSize);
       strokeText(ctx, String(this.score), hud.scoreX, hud.scoreY, 8);
       if (this.scorePop > 0.08 && this.lastGain > 0) {
         ctx.globalAlpha = clamp(this.scorePop, 0, 0.85);
-        ctx.font = font(700, 18);
+        ctx.font = font(700, hud.compact ? 14 : 18);
         ctx.fillText(`+${this.lastGain}`, hud.scoreX, hud.bestY);
       } else if (this.best > 0) {
         ctx.globalAlpha = 0.4;
-        ctx.font = font(500, 14);
+        ctx.font = font(500, hud.compact ? 12 : 14);
         ctx.fillText(`best ${this.best}`, hud.scoreX, hud.bestY);
       }
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";
       ctx.globalAlpha = 0.45;
-      ctx.font = font(600, 14);
+      ctx.font = font(600, hud.compact ? 12 : 14);
       ctx.fillText(`DEPTH ${this.depth}`, this.cx, hud.depthY);
       ctx.globalAlpha = 1;
     }
@@ -963,14 +1159,14 @@ export class Game {
       ctx.textAlign = "left";
       ctx.translate(hud.comboX, hud.comboY);
       ctx.scale(s, s);
-      ctx.font = font(800, 48);
+      ctx.font = font(800, hud.comboSize);
       ctx.globalAlpha = 0.95;
       const comboText = String(this.combo);
       const comboW = ctx.measureText(comboText).width;
       strokeText(ctx, comboText, 0, 0, 8);
       const label = formatMul(mul);
       if (label) {
-        ctx.font = font(700, 26);
+        ctx.font = font(700, hud.compact ? 18 : 26);
         ctx.globalAlpha = 0.75 + this.mulFlash * 0.25;
         ctx.fillText(label, comboW + 16, 1);
       }
@@ -983,10 +1179,10 @@ export class Game {
       ctx.globalAlpha = 0.2;
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 1;
-      ctx.strokeRect(hud.massX, hud.massY, hud.massW, 5);
+      ctx.strokeRect(hud.massX, hud.massY, hud.massW, hud.massH);
       ctx.globalAlpha = 0.8;
       ctx.fillStyle = "#fff";
-      ctx.fillRect(hud.massX, hud.massY, hud.massW * t, 5);
+      ctx.fillRect(hud.massX, hud.massY, hud.massW * t, hud.massH);
       ctx.globalAlpha = 1;
     }
 
@@ -994,16 +1190,24 @@ export class Game {
       const fade = clamp((this.bangT - 0.75) / 0.25, 0, 1) * (this.bangT > 2.4 ? 1 - clamp((this.bangT - 2.4) / 0.6, 0, 1) : 1);
       ctx.globalAlpha = fade;
       ctx.textAlign = "center";
-      ctx.font = font(800, 72);
+      ctx.font = font(800, hud.compact ? Math.round(48 * hud.ui) : 72);
       ctx.fillStyle = "#fff";
       strokeText(ctx, String(this.bangScore), this.cx, this.cy - 8, 10);
-      ctx.font = font(600, 18);
+      ctx.font = font(600, hud.compact ? 15 : 18);
       ctx.fillText(this.bangHeadline, this.cx, this.cy + 40);
       if (this.bangT > 0.55) {
         ctx.globalAlpha = fade * 0.55;
-        ctx.font = font(500, 16);
+        ctx.font = font(500, hud.compact ? 13 : 16);
         ctx.fillText("TAP  TO  GO  DEEPER", this.cx, this.cy + 70);
       }
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.platToastLife > 0 && this.platToast) {
+      ctx.textAlign = "center";
+      ctx.globalAlpha = clamp(this.platToastLife / 0.5, 0, 0.55);
+      ctx.font = font(600, hud.compact ? 12 : 14);
+      ctx.fillText(this.platToast, this.cx, hud.whisperY + (hud.compact ? 22 : 28));
       ctx.globalAlpha = 1;
     }
 
@@ -1035,24 +1239,25 @@ export class Game {
     const { x, y, s } = this.muteRect();
     const cx = x + s / 2;
     const cy = y + s / 2;
+    const u = s / 44;
     ctx.save();
     ctx.globalAlpha = 0.42;
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(cx - 8, cy);
-    ctx.lineTo(cx - 3, cy - 5);
-    ctx.lineTo(cx - 3, cy + 5);
+    ctx.moveTo(cx - 8 * u, cy);
+    ctx.lineTo(cx - 3 * u, cy - 5 * u);
+    ctx.lineTo(cx - 3 * u, cy + 5 * u);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(cx - 1, cy, 6, -0.6, 0.6);
+    ctx.arc(cx - 1 * u, cy, 6 * u, -0.6, 0.6);
     ctx.stroke();
     if (this.muted) {
       ctx.beginPath();
-      ctx.moveTo(cx - 10, cy + 9);
-      ctx.lineTo(cx + 8, cy - 9);
+      ctx.moveTo(cx - 10 * u, cy + 9 * u);
+      ctx.lineTo(cx + 8 * u, cy - 9 * u);
       ctx.stroke();
     }
     ctx.restore();

@@ -6,6 +6,32 @@ Black screen. A small white orb. Tap when the pulse ring kisses it. Perfect hits
 
 Built as a tiny browser game for [Wavedash](https://docs.wavedash.com/getting-started/introduction): open a link, play immediately.
 
+Game id: `wd_770959de815da6fe71ce8f5efaa1f62caa5200f7071b8480c0b4dcf72b3af3b1` (`wavedash.toml`).
+
+## Wavedash
+
+The SDK is injected on Wavedash. Local Vite play uses a stub so identity, boards, and unlocks still work.
+
+| Feature | What it does |
+| --- | --- |
+| Identity | Shows your Wavedash username (or `YOU` locally) on the title and death screens |
+| Leaderboards | `high-scores`, `depth`, and `combo` — created at runtime, best kept, shown on title + death |
+| Achievements | Base set in `wavedash/catalog.json` (first light, discoveries, streaks, depth, scores) |
+| Stats | Runs, best score/depth/combo, perfects, silences, universes, discoveries |
+| Cloud save | Syncs found words, best score, best depth, and run count across devices |
+| Presence | Friends see `DEPTH n` / `BANG` / `VOID` |
+| Mute | In-game speaker follows the Wavedash mute button |
+| Overlay | `Tab` opens the Wavedash overlay |
+
+After `wavedash auth login`:
+
+```bash
+npm run wavedash:catalog
+wavedash build push -m "Nothing"
+```
+
+Or import `wavedash/catalog.json` in Developer Portal → Achievements → Import JSON. Leaderboards create themselves the first time the game boots on Wavedash.
+
 ## Play
 
 ```bash
@@ -20,6 +46,7 @@ Opens at [http://127.0.0.1:4177](http://127.0.0.1:4177).
 | Click / tap anywhere | Create (time it with the ring) |
 | Space | Create |
 | M or the speaker | Mute |
+| Tab | Wavedash overlay (friends, settings) |
 
 No tutorial. The first tap always lands. After that, the ring is the game.
 
@@ -38,7 +65,7 @@ Deeper floors get meaner. No shop, no pick — just a word:
 - Depth 4 **TIGHT** — a smaller kiss
 - Depth 5+ **DEEPER** — those stack, and bangs need more mass
 
-Death screens the score, peak combo, and a row of discoveries (found words vs dots). Tap to start a new run. Best score and best depth stay in this browser. If the Wavedash SDK is present, the score is submitted to `high-scores`.
+Death screens the score, peak combo, your name, rank, and a row of discoveries (found words vs dots). Tap to start a new run. Best score and best depth stay in this browser and sync to Wavedash cloud saves when the SDK is present. Scores go to `high-scores` (plus `depth` and `combo`).
 
 ## How it feels
 
