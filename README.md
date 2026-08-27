@@ -15,14 +15,16 @@ npm run dev
 
 Opens at [http://127.0.0.1:4177](http://127.0.0.1:4177).
 
+Boot is a title screen: **WHATTODOGAMES**, then **NOTHING**, then just a point. Tap (or **PLAY**) to begin. Score, combo, and the rest of the HUD stay off until the universe has started. After a run, tap the death screen to return to that waiting point.
+
 | Input | Action |
 | --- | --- |
-| Click / tap anywhere | Create (time it with the ring) |
-| Space | Create |
+| Click / tap anywhere | Skip the title, play from the menu, or create (time it with the ring) |
+| Space | Same as a tap |
 | Tap a numbered card, or 1 / 2 / 3 | Pick a relic after a bang |
 | M or the speaker | Mute |
 
-No tutorial. The first tap always lands. After that, the ring is the game.
+No tutorial. The first tap of a run always lands. After that, the ring is the game.
 
 After a bang, tap once to skip to the draft. On a wide screen the three cards sit in a row. Tap one, or press `1` `2` `3`. Miss-clicks do nothing.
 
