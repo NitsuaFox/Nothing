@@ -2,7 +2,7 @@
 
 A universe from a single point.
 
-Black screen. A small white orb. Tap when the pulse ring kisses it. Perfect hits create matter. Misses get sucked back into the void. Fill the silence and it all collapses into a Big Bang — then you start from nothing again.
+Black screen. A small white orb. Tap when the pulse ring kisses it. Perfect hits create matter. Misses get sucked back into the void. Bang, take a relic, go deeper. Chase the high score until the void takes you.
 
 Built as a tiny browser game for [Wavedash](https://docs.wavedash.com/getting-started/introduction): open a link, play immediately.
 
@@ -19,42 +19,36 @@ Opens at [http://127.0.0.1:4177](http://127.0.0.1:4177).
 | --- | --- |
 | Click / tap anywhere | Create (time it with the ring) |
 | Space | Create |
+| 1 / 2 / 3 | Pick a relic after a bang |
 | M or the speaker | Mute |
 
 No tutorial. The first tap always lands. After that, the ring is the game.
 
-## Build
+## Run
 
-```bash
-npm run build
-```
+Each universe is a floor. Fill it until it bangs. Then pick **one of three relics** and descend. Score is run-long and multiplied by depth — going deeper is how high scores happen.
 
-Static output lands in `dist/`. That folder is what you upload to Wavedash (`upload_dir = "./dist"`). Call `Wavedash.init()` is already handled when the host injects the SDK; locally the handshake no-ops so you can play without the CLI.
+The first universe cannot kill you. After that:
 
-Publish flow (from Wavedash docs):
+- Three missed create pulses in a row
+- Three **VOID** strikes
+- Entropy eating the last of your mass
 
-1. `npm run build`
-2. `wavedash init` (writes `wavedash.toml` with your real `game_id`)
-3. Set `upload_dir = "./dist"`
-4. `wavedash build push` then publish the build
+Death screens the score. Tap to start a new run. Best score and best depth stay in this browser. If the Wavedash SDK is present, the score is submitted to `high-scores`.
+
+## Relics
+
+Eighteen laws. Commons from depth 1, uncommons from 2, rares from 3. **PURE** can stack.
+
+Examples: Afterimage (wider kiss), Quiet (silence pays), Greed (+30% score, faster entropy), Umbral (more voids, richer silence), Memory (half your sky survives the bang).
 
 ## How it feels
 
 - **Perfect** — ring meets the orb. Hitstop, punch, pitch-up pop, combo.
 - **Good** — close. Smaller burst, combo holds.
-- **Miss** — too early, too late, or you let the pulse die. Matter vacuums inward.
-- **Entropy** — stop tapping and the universe unravels.
-- **Bang** — enough mass and time slows, then everything becomes light.
-
-Score is mass created, peak combo, silences, and stars planted. Best is stored in this browser (`localStorage`), along with discoveries and the faint sky leftover from your last Big Bang.
-
-## Depth
-
-Still one button. The universe just has more laws.
-
-- **Phases** — Void, Spark, Star, Giant, Singularity. Each whispers its name once. Giant pulses feel heavier. Singularity slows time.
-- **Void pulses** — A dashed hollow ring. Do not tap it. Let it pass for **SILENCE** (combo continues). Tap it and the void takes (**VOID**).
-- **Resonance** — Three perfects in a row. Extra matter, a chord, more stars.
-- **Sky** — Hits plant stars. After a bang, some remain as the next universe's night.
+- **Miss** — too early, too late, or you let the pulse die.
+- **Void pulses** — dashed hollow ring. Let it pass for **SILENCE**. Tap it and the void takes.
+- **Resonance** — perfects in a row. Extra matter, a chord.
+- **Bang** — pick a relic. Depth +1.
 
 Sounds are synthesized with the Web Audio API — there are no audio files. The first tap unlocks audio (browser autoplay rules).

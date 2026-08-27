@@ -38,7 +38,8 @@ bindInput(canvas, {
   tap: (x, y) => {
     void game.tap(x, y);
   },
-  muteToggle: () => game.toggleMute(),
+    muteToggle: () => game.toggleMute(),
+    pick: (index) => game.pickRelic(index),
 });
 
 handshake();

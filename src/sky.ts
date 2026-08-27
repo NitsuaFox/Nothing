@@ -57,6 +57,21 @@ export class Sky {
     }
   }
 
+  carry(frac: number): void {
+    const keepCount = Math.round(this.born.length * clamp(frac, 0, 1));
+    const shuffled = [...this.born].sort(() => Math.random() - 0.5);
+    const keep = shuffled.slice(0, keepCount);
+    const rest = shuffled.slice(keepCount).map((star) => ({
+      ...star,
+      alpha: star.alpha * 0.38,
+      size: star.size * 0.85,
+    }));
+    this.remnants = [...this.remnants, ...rest].slice(-MAX_STARS);
+    this.born = keep;
+    saveRemnants(this.remnants);
+    log("sky carry", { keep: keep.length, remnants: this.remnants.length });
+  }
+
   collapse(): void {
     const keep = this.born.filter(() => Math.random() < 0.62).map((star) => ({
       ...star,

@@ -23,6 +23,9 @@ export const DISCOVERY_LABEL: Record<DiscoveryId, string> = {
 
 const FOUND_KEY = "nothing:found";
 const LIVES_KEY = "nothing:lives";
+const HISCORE_KEY = "nothing:hiscore";
+const HIDEPTH_KEY = "nothing:hidepth";
+const RUNS_KEY = "nothing:runs";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -57,5 +60,46 @@ export function saveLives(count: number): void {
     localStorage.setItem(LIVES_KEY, String(count));
   } catch (error) {
     log("lives save failed", { error: String(error) });
+  }
+}
+
+export function loadHiscore(): number {
+  const n = Number(localStorage.getItem(HISCORE_KEY) ?? localStorage.getItem("nothing:best") ?? "0");
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function saveHiscore(score: number): void {
+  try {
+    localStorage.setItem(HISCORE_KEY, String(score));
+    localStorage.setItem("nothing:best", String(score));
+    log("hiscore saved", { score });
+  } catch (error) {
+    log("hiscore save failed", { error: String(error) });
+  }
+}
+
+export function loadHidepth(): number {
+  const n = Number(localStorage.getItem(HIDEPTH_KEY) ?? "0");
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function saveHidepth(depth: number): void {
+  try {
+    localStorage.setItem(HIDEPTH_KEY, String(depth));
+  } catch (error) {
+    log("hidepth save failed", { error: String(error) });
+  }
+}
+
+export function loadRuns(): number {
+  const n = Number(localStorage.getItem(RUNS_KEY) ?? "0");
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function saveRuns(count: number): void {
+  try {
+    localStorage.setItem(RUNS_KEY, String(count));
+  } catch (error) {
+    log("runs save failed", { error: String(error) });
   }
 }
