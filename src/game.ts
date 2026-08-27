@@ -155,7 +155,7 @@ export class Game {
       this.awaitingFirstPulse = false;
       this.applyTap("perfect", 0, 0);
       log("first tap — universe begins");
-      this.beginNextCycle(0.85);
+      this.beginNextCycle(1.6);
       return;
     }
 
@@ -184,9 +184,9 @@ export class Game {
         return;
       }
       kind = gap <= PERFECT_GAP ? "perfect" : "good";
-    } else if (errorMs <= 120) {
+    } else if (errorMs <= 140) {
       kind = "perfect";
-    } else if (errorMs <= 220) {
+    } else if (errorMs <= 280) {
       kind = "good";
     } else {
       kind = "miss";
@@ -315,7 +315,7 @@ export class Game {
   private applyTap(kind: TapKind, errorMs: number, gap: number): void {
     const r = this.orbRadius();
     this.hitLabel = kind === "perfect" ? "PERFECT" : kind === "good" ? "GOOD" : "MISS";
-    this.hitLabelLife = 0.95;
+    this.hitLabelLife = 1.5;
 
     if (kind === "perfect") {
       this.combo += 1;
@@ -391,7 +391,7 @@ export class Game {
 
   private updateEntropy(dt: number): void {
     if (!this.started || this.mass <= 0) return;
-    if (this.timeSinceTap < 1.8) return;
+    if (this.timeSinceTap < 3.2) return;
     if (!this.entropyActive) {
       this.entropyActive = true;
       log("entropy start", { mass: Number(this.mass.toFixed(2)) });
