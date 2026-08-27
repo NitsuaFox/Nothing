@@ -1,5 +1,6 @@
 import { AudioEngine, type TapKind } from "./audio";
 import { log } from "./debug";
+import { depthMods, depthWord, type DepthMods } from "./depth";
 import { Juice } from "./juice";
 import { clamp, lerp } from "./math";
 import {
@@ -12,14 +13,26 @@ import {
   pulseRadius,
 } from "./orb";
 import { Particles } from "./particles";
-import { DISCOVERY_LABEL, loadFound, loadHidepth, loadHiscore, loadLives, loadRuns, saveFound, saveHidepth, saveHiscore, saveLives, saveRuns, type DiscoveryId } from "./progress";
-import { type Relic, type RelicId, modsFrom, rollDraft } from "./relics";
+import {
+  DISCOVERY_LABEL,
+  DISCOVERY_ORDER,
+  loadFound,
+  loadHidepth,
+  loadHiscore,
+  loadRuns,
+  saveFound,
+  saveHidepth,
+  saveHiscore,
+  saveRuns,
+  type DiscoveryId,
+} from "./progress";
 import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
 import { Sky } from "./sky";
 import type { Phase, PulseKind } from "./types";
 import { submitScore } from "./wavedash";
 
 const TITLE_FADE_END = 4.6;
+const MAX_HEARTS = 3;
 
 function loadBest(): number {
   return loadHiscore();
@@ -66,7 +79,7 @@ export class Game {
   readonly particles = new Particles();
   readonly sky = new Sky();
   found = loadFound();
-  lives = loadLives();
+  hearts = MAX_HEARTS;
   discoveredThisRun: DiscoveryId[] = [];
   perfectStreak = 0;
   silences = 0;
@@ -74,15 +87,10 @@ export class Game {
   pulseKind: PulseKind = "create";
   whisper = "";
   whisperLife = 0;
-  mode: "play" | "draft" | "dead" = "play";
+  mode: "play" | "dead" = "play";
   depth = 1;
-  relics: RelicId[] = [];
-  draft: Relic[] = [];
-  draftHover = -1;
   pointerX = 0;
   pointerY = 0;
-  createMissStreak = 0;
-  voidStrikes = 0;
   universeFresh = true;
   deathReason = "";
   bestDepth = loadHidepth();
@@ -90,7 +98,6 @@ export class Game {
   scorePop = 0;
   lastGain = 0;
   mulFlash = 0;
-  pickFlash = 0;
 
   w = 1;
   h = 1;
@@ -138,7 +145,7 @@ export class Game {
     log("game construct", {
       best: this.best,
       bestDepth: this.bestDepth,
-      lives: this.lives,
+      hearts: this.hearts,
       remnants: this.sky.remnants.length,
       found: [...this.found],
     });
@@ -158,13 +165,14 @@ export class Game {
       score: { x: hud.scoreX, y: hud.scoreY },
       combo: { x: hud.comboX, y: hud.comboY },
       mass: { x: hud.massX, y: hud.massY, w: hud.massW },
-      draftWide: w >= 720,
+      hearts: { x: hud.heartX, y: hud.heartY },
     });
   }
 
   private hudLayout() {
     const pad = Math.max(28, Math.round(Math.min(this.w, this.h) * 0.045));
     const massW = Math.min(Math.round(this.w * 0.32), 360);
+    const mute = this.muteRect();
     return {
       pad,
       scoreX: pad,
@@ -177,8 +185,8 @@ export class Game {
       massW,
       massX: this.cx - massW / 2,
       massY: this.h - pad - 10,
-      relicX: this.w - pad,
-      relicY: this.h - pad - 18,
+      heartX: mute.x - 18,
+      heartY: mute.y + mute.s / 2,
     };
   }
 
@@ -214,19 +222,14 @@ export class Game {
       this.universeFresh = false;
       this.applyTap("perfect", 0, 0);
       this.beginNextCycle(1.6);
-      log("first tap — universe begins", { depth: this.depth });
-      return;
-    }
-
-    if (this.mode === "draft") {
-      this.tryPickDraft(x, y);
+      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts });
       return;
     }
 
     if (this.banging) {
       if (this.bangT > 0.55) {
-        log("bang skipped → draft", { bangT: Number(this.bangT.toFixed(2)), x, y });
-        this.openDraft();
+        log("bang skipped → descend", { bangT: Number(this.bangT.toFixed(2)), combo: this.combo });
+        this.descend();
       }
       return;
     }
@@ -242,20 +245,19 @@ export class Game {
       this.awaitingFirstPulse = false;
       this.universeFresh = false;
       this.applyTap("perfect", 0, 0);
-      log("first tap — universe begins", { depth: this.depth });
+      log("first tap — universe begins", { depth: this.depth, hearts: this.hearts });
       this.beginNextCycle(1.6);
       return;
     }
 
-    if (this.universeFresh && this.mods().firstPulseFree) {
+    if (this.universeFresh) {
       this.universeFresh = false;
       this.hitThisCycle = true;
       this.applyTap("perfect", 0, 0);
-      log("first light");
+      log("first light", { depth: this.depth, combo: this.combo, pStreak: this.perfectStreak });
       this.beginNextCycle(0.35);
       return;
     }
-    this.universeFresh = false;
 
     if (!this.cycleArmed || this.hitThisCycle) {
       log("tap ignored — pulse not open");
@@ -307,7 +309,6 @@ export class Game {
   movePointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
-    if (this.mode === "draft") this.draftHover = this.hitDraftIndex(x, y);
   }
 
   update(dt: number): void {
@@ -322,19 +323,15 @@ export class Game {
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
     this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);
-    this.pickFlash = Math.max(0, this.pickFlash - dt * 1.7);
     this.squashX = lerp(this.squashX, 1, 1 - Math.pow(0.0002, dt));
     this.squashY = lerp(this.squashY, 1, 1 - Math.pow(0.0002, dt));
-    const mods = this.mods();
-    const timeScale =
-      frozen ? 0.08 : this.phase === "singularity" ? 0.55 * mods.alwaysSlow : this.phase === "bang" ? 0.7 : 1 * mods.alwaysSlow;
+    const timeScale = frozen ? 0.08 : this.phase === "singularity" ? 0.55 : this.phase === "bang" ? 0.7 : 1;
     const gdt = dt * timeScale;
     this.gameTime += gdt;
 
     this.particles.update(dt, this.cx, this.cy);
-    if (this.mode === "draft") this.draftHover = this.hitDraftIndex(this.pointerX, this.pointerY);
 
-    if (this.mode === "draft" || this.mode === "dead") return;
+    if (this.mode === "dead") return;
 
     if (this.banging) {
       this.updateBang(gdt);
@@ -348,8 +345,7 @@ export class Game {
     this.audio.setMass(this.mass, this.phase);
 
     const wantOrbit =
-      (this.phase === "spark" ? 4 : this.phase === "star" ? 8 : this.phase === "giant" ? 13 : this.phase === "singularity" ? 18 : 0) +
-      this.mods().extraOrbit;
+      this.phase === "spark" ? 4 : this.phase === "star" ? 8 : this.phase === "giant" ? 13 : this.phase === "singularity" ? 18 : 0;
     if (wantOrbit > 0) {
       this.particles.spawnOrbiters(this.cx, this.cy, wantOrbit, this.orbRadius());
     } else {
@@ -403,7 +399,7 @@ export class Game {
       1 + Math.sin(this.wallTime * 2.2) * 0.055 + this.windowGlow * 0.12,
       this.squashX,
       this.squashY,
-      this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4) + this.pickFlash * 0.5,
+      this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
     );
 
     this.particles.draw(ctx);
@@ -411,9 +407,9 @@ export class Game {
 
     this.juice.drawOverlays(ctx, this.w, this.h, cx + ox, cy + oy);
     this.drawHud(ctx);
-    if (this.mode === "draft") this.drawDraft(ctx);
     if (this.mode === "dead") this.drawDead(ctx);
     this.drawMute(ctx);
+    this.drawHearts(ctx);
   }
 
   private cycleProgress(): number {
@@ -447,7 +443,6 @@ export class Game {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
       this.perfectStreak += 1;
-      this.createMissStreak = 0;
       const add = (1 + Math.min(this.combo, 24) * 0.04) * mods.hitMassMul;
       this.mass += add;
       this.massCreated += add;
@@ -470,7 +465,6 @@ export class Game {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
       this.perfectStreak = 0;
-      this.createMissStreak = 0;
       const add = 0.55 * mods.hitMassMul;
       this.mass += add;
       this.massCreated += add;
@@ -481,16 +475,15 @@ export class Game {
       this.comboPop = 0.85;
       this.grantScore(6, prevPerfect);
     } else {
-      if (mods.missHalveCombo) this.combo = Math.floor(this.combo / 2);
-      else this.combo = 0;
+      this.combo = 0;
       this.perfectStreak = 0;
-      this.createMissStreak += 1;
       this.mass = Math.max(0, this.mass - 0.45);
       this.squashX = 0.78;
       this.squashY = 1.22;
       this.particles.vacuumToward(this.cx, this.cy, ["orbit"]);
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
       this.lastGain = 0;
+      this.loseLife("miss");
     }
 
     const tempo = mods.tempoFromCombo ? lerp(1.18, 0.58, clamp(this.combo / 32, 0, 1)) : 1.05;
@@ -499,11 +492,10 @@ export class Game {
     this.audio.tap(kind, this.combo);
 
     log(
-      `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} mul=${streakMul(this.perfectStreak)} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth}`,
+      `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} mul=${streakMul(this.perfectStreak)} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth} hearts=${this.hearts}`,
     );
 
-    if (kind === "miss") this.checkDeath("miss");
-    if (this.mass >= this.bangNeed() && !this.banging) this.startBang();
+    if (this.mode === "play" && this.mass >= this.bangNeed() && !this.banging) this.startBang();
   }
 
   private beginNextCycle(delay: number): void {
@@ -528,6 +520,7 @@ export class Game {
         log("pulse armed", {
           index: this.pulseIndex,
           kind: this.pulseKind,
+          depth: this.depth,
           maxR: Number(pulseMaxRadius(this.orbRadius(), this.w, this.h).toFixed(1)),
           perfectGap: Number(windows.perfectGap.toFixed(1)),
           goodGap: Number(windows.goodGap.toFixed(1)),
@@ -559,7 +552,6 @@ export class Game {
   private applySilence(): void {
     const mods = this.mods();
     this.silences += 1;
-    this.createMissStreak = 0;
     this.combo += mods.silenceCombo;
     this.peakCombo = Math.max(this.peakCombo, this.combo);
     this.mass += mods.silenceMass;
@@ -580,14 +572,14 @@ export class Game {
       mul: streakMul(this.perfectStreak),
       mass: Number(this.mass.toFixed(2)),
       score: this.score,
+      hearts: this.hearts,
     });
-    if (this.mass >= this.bangNeed() && !this.banging) this.startBang();
+    if (this.mode === "play" && this.mass >= this.bangNeed() && !this.banging) this.startBang();
   }
 
   private applyVoidStrike(errorMs: number, gap: number): void {
     this.combo = 0;
     this.perfectStreak = 0;
-    this.voidStrikes += 1;
     this.mass = Math.max(0, this.mass - 1.4);
     this.hitLabel = "VOID";
     this.hitLabelLife = 1.3;
@@ -597,8 +589,8 @@ export class Game {
     this.juice.voidHit();
     this.audio.voidHit();
     this.discover("voidtaken");
-    log(`tap kind=void strikes=${this.voidStrikes} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)}`);
-    this.checkDeath("void");
+    log(`tap kind=void gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} hearts=${this.hearts}`);
+    this.loseLife("void");
   }
 
   private discover(id: DiscoveryId): void {
@@ -608,7 +600,7 @@ export class Game {
     saveFound(this.found);
     this.whisper = DISCOVERY_LABEL[id];
     this.whisperLife = 1.8;
-    log("discovery", { id, label: DISCOVERY_LABEL[id] });
+    log("discovery", { id, label: DISCOVERY_LABEL[id], found: this.found.size });
   }
 
   private setPhaseWhisper(phase: Phase): void {
@@ -630,8 +622,8 @@ export class Game {
       this.entropyActive = true;
       log("entropy start", { mass: Number(this.mass.toFixed(2)) });
     }
-    this.mass = Math.max(0, this.mass - 2.4 * dt * this.mods().entropyMul);
-    if (this.mass <= 0) this.checkDeath("entropy");
+    this.mass = Math.max(0, this.mass - 2.4 * dt);
+    if (this.mass <= 0) this.checkEntropyDeath();
     if (Math.random() < dt * 6) {
       this.particles.vacuumToward(this.cx, this.cy);
     }
@@ -657,26 +649,26 @@ export class Game {
     this.banging = true;
     this.bangT = 0;
     this.phase = "bang";
-    this.grantScore(Math.round(80 * mods.bangScoreMul + this.sky.born.length * 2 * mods.skyScoreMul), this.perfectStreak);
+    this.grantScore(Math.round(80 + this.sky.born.length * 2), this.perfectStreak);
     this.bangScore = this.score;
     this.newBest = this.bangScore > this.best;
     this.universes += 1;
-    this.lives += 1;
-    saveLives(this.lives);
     this.discover("universe");
-    const story = [...this.discoveredThisRun].reverse().find((id) => id !== "universe");
-    this.bangHeadline = this.newBest ? "N E W" : story ? DISCOVERY_LABEL[story] : `DEPTH ${this.depth}`;
+    const nextWord = depthWord(this.depth + 1);
+    this.bangHeadline = this.newBest ? "N E W" : nextWord || `DEPTH ${this.depth + 1}`;
     this.juice.bang();
     this.audio.bang();
     this.particles.spawnStars(this.cx, this.cy, 90);
-    if (mods.keepSky > 0) this.sky.carry(mods.keepSky);
-    else this.sky.collapse();
+    this.sky.collapse();
     log("bang", {
       score: this.bangScore,
       depth: this.depth,
-      relics: this.relics,
-      peakCombo: this.peakCombo,
-      silences: this.silences,
+      next: this.depth + 1,
+      word: nextWord,
+      combo: this.combo,
+      pStreak: this.perfectStreak,
+      hearts: this.hearts,
+      bangMass: mods.bangMass,
     });
   }
 
@@ -684,19 +676,25 @@ export class Game {
     this.bangT += dt;
     this.densify = this.bangT < 0.55 ? lerp(0.4, 1, this.bangT / 0.55) : lerp(1, 0, clamp((this.bangT - 0.55) / 0.4, 0, 1));
     if (this.bangT > 2.5) {
-      this.openDraft();
+      this.descend();
     }
   }
 
   private resetUniverse(hard: boolean): void {
-    log("reset universe", { hard, depth: this.depth, relics: this.relics.length });
     const mods = this.mods();
+    log("reset universe", {
+      hard,
+      depth: this.depth,
+      word: depthWord(this.depth),
+      combo: this.combo,
+      pStreak: this.perfectStreak,
+      hearts: this.hearts,
+      periodMul: Number(mods.periodMul.toFixed(3)),
+    });
     this.banging = false;
     this.bangT = 0;
     this.mass = mods.startMass;
     this.massCreated = 0;
-    this.combo = 0;
-    this.perfectStreak = 0;
     this.pulseIndex = 0;
     this.pulseKind = "create";
     this.phase = this.mass >= mods.sparkMin ? "spark" : "void";
@@ -710,54 +708,26 @@ export class Game {
     this.entropyActive = false;
     this.densify = 0;
     this.universeFresh = true;
-    this.createMissStreak = 0;
     this.particles.trimOrbiters(0);
-    if (mods.keepSky <= 0) this.sky.clearBorn();
+    this.sky.clearBorn();
     if (hard) this.particles.clear();
     this.juice.reset();
   }
 
-  mods() {
-    return modsFrom(this.relics);
-  }
-
-  pickRelic(index: number): void {
-    if (this.mode !== "draft") return;
-    const relic = this.draft[index];
-    if (!relic) {
-      log("pickRelic ignored", { index, draftLen: this.draft.length });
-      return;
-    }
-    this.relics.push(relic.id);
-    log("relic taken", { id: relic.id, name: relic.name, depth: this.depth + 1, relics: this.relics });
-    this.whisper = relic.name;
-    this.whisperLife = 1.8;
-    this.depth += 1;
-    this.bestDepth = Math.max(this.bestDepth, this.depth);
-    saveHidepth(this.bestDepth);
-    this.mode = "play";
-    this.draft = [];
-    this.draftHover = -1;
-    this.pickFlash = 1;
-    this.juice.relicPick();
-    this.audio.relicPick();
-    this.particles.spawnBurst(this.cx, this.cy, 36, 260, this.orbRadius());
-    this.particles.spawnFloater(this.cx, this.cy - 36, relic.name, 28);
-    this.resetUniverse(false);
+  mods(): DepthMods {
+    return depthMods(this.depth);
   }
 
   private bangNeed(): number {
-    return this.mods().bangMass + (this.depth - 1) * 3;
+    return this.mods().bangMass;
   }
 
   private grantScore(base: number, prevPerfect: number): number {
-    const relicMul = this.mods().scoreMul;
     const g = scoreGain({
       base,
       combo: Math.max(1, this.combo),
       perfectStreak: this.perfectStreak,
       depth: this.depth,
-      relicMul,
     });
     this.score += g.gained;
     this.lastGain = g.gained;
@@ -773,6 +743,7 @@ export class Game {
         combo: this.combo,
         gained: g.gained,
         score: this.score,
+        depth: this.depth,
       });
     } else {
       log("score", {
@@ -780,7 +751,6 @@ export class Game {
         combo: this.combo,
         streak: g.streak,
         depth: this.depth,
-        relic: relicMul,
         gained: g.gained,
         score: this.score,
       });
@@ -788,16 +758,19 @@ export class Game {
     return g.gained;
   }
 
-  private lethal(): boolean {
-    return this.depth >= 2;
+  private loseLife(reason: "miss" | "void"): void {
+    const before = this.hearts;
+    this.hearts = Math.max(0, this.hearts - 1);
+    log("life", { reason, before, hearts: this.hearts, depth: this.depth, lethal: this.depth >= 2 });
+    if (this.mode !== "play" || this.banging) return;
+    if (this.depth >= 2 && this.hearts <= 0) this.die(reason);
   }
 
-  private checkDeath(reason: "miss" | "void" | "entropy"): void {
-    if (this.mode !== "play" || this.banging || !this.lethal()) return;
-    if (reason === "miss" && this.createMissStreak < 3) return;
-    if (reason === "void" && this.voidStrikes < 3) return;
-    if (reason === "entropy" && this.mass > 0) return;
-    this.die(reason);
+  private checkEntropyDeath(): void {
+    if (this.mode !== "play" || this.banging) return;
+    if (this.depth < 2) return;
+    if (this.mass > 0) return;
+    this.die("entropy");
   }
 
   private die(reason: string): void {
@@ -825,7 +798,9 @@ export class Game {
       reason,
       score: this.score,
       depth: this.depth,
-      relics: this.relics,
+      peakCombo: this.peakCombo,
+      hearts: this.hearts,
+      found: this.found.size,
       best: this.best,
       newBest: this.newBest,
     });
@@ -835,13 +810,10 @@ export class Game {
     log("run start");
     this.mode = "play";
     this.depth = 1;
-    this.relics = [];
-    this.draft = [];
+    this.hearts = MAX_HEARTS;
     this.score = 0;
     this.peakCombo = 0;
     this.silences = 0;
-    this.voidStrikes = 0;
-    this.createMissStreak = 0;
     this.discoveredThisRun = [];
     this.universes = 0;
     this.deathReason = "";
@@ -850,6 +822,7 @@ export class Game {
     this.banging = false;
     this.mass = 0;
     this.combo = 0;
+    this.perfectStreak = 0;
     this.phase = "void";
     this.pulseIndex = 0;
     this.hitThisCycle = false;
@@ -861,120 +834,34 @@ export class Game {
     this.mulFlash = 0;
   }
 
-  private openDraft(): void {
-    this.banging = false;
-    this.mode = "draft";
-    this.draft = rollDraft(this.depth + 1, this.relics);
-    this.cycleArmed = false;
-    this.draftHover = this.hitDraftIndex(this.pointerX, this.pointerY);
-    log("draft", {
-      depth: this.depth + 1,
-      choices: this.draft.map((r) => r.id),
-      cards: this.draftLayout().map((c) => ({ id: c.relic.id, x: Math.round(c.x), y: Math.round(c.y), w: Math.round(c.w), h: Math.round(c.h) })),
-    });
-  }
-
-  private tryPickDraft(x: number, y: number): void {
-    const hit = this.hitDraftIndex(x, y);
-    log("draft tap", { x: Math.round(x), y: Math.round(y), hit, hover: this.draftHover });
-    if (hit >= 0) this.pickRelic(hit);
-  }
-
-  private hitDraftIndex(px: number, py: number): number {
-    const cards = this.draftLayout();
-    return cards.findIndex((c) => px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h);
-  }
-
-  private draftLayout(): { relic: Relic; x: number; y: number; w: number; h: number }[] {
-    const n = Math.max(1, this.draft.length);
-    const pad = Math.max(24, Math.round(this.w * 0.045));
-    const wide = this.w >= 720;
-
-    if (wide) {
-      const gap = Math.max(24, Math.round(this.w * 0.024));
-      const y = this.h * 0.28;
-      const cardH = Math.max(200, Math.min(this.h * 0.48, this.h - y - pad - 56));
-      const cardW = Math.min(420, (this.w - pad * 2 - gap * (n - 1)) / n);
-      const totalW = n * cardW + (n - 1) * gap;
-      const x0 = this.cx - totalW / 2;
-      return this.draft.map((relic, i) => ({ relic, x: x0 + i * (cardW + gap), y, w: cardW, h: cardH }));
+  private descend(): void {
+    if (!this.banging) return;
+    const carried = this.combo;
+    const carriedStreak = this.perfectStreak;
+    this.depth += 1;
+    this.bestDepth = Math.max(this.bestDepth, this.depth);
+    saveHidepth(this.bestDepth);
+    if (this.hearts <= 0) {
+      this.hearts = 1;
+      log("life restored for descent", { hearts: this.hearts, depth: this.depth });
     }
-
-    const gap = 16;
-    const cardW = Math.min(this.w - pad * 2, 560);
-    const area = this.h * 0.52;
-    const cardH = Math.max(100, Math.min(140, (area - gap * (n - 1)) / n));
-    const totalH = n * cardH + (n - 1) * gap;
-    const x = this.cx - cardW / 2;
-    const y0 = Math.max(this.h * 0.32, this.h - pad - 40 - totalH);
-    return this.draft.map((relic, i) => ({ relic, x, y: y0 + i * (cardH + gap), w: cardW, h: cardH }));
-  }
-
-  private drawDraft(ctx: CanvasRenderingContext2D): void {
-    ctx.save();
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillRect(0, 0, this.w, this.h);
-
-    const cards = this.draftLayout();
-    const hintY = cards.length
-      ? Math.min(this.h - 28, cards[0].y + cards[0].h + 40)
-      : this.h - 28;
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
-    ctx.globalAlpha = 0.5;
-    ctx.font = font(600, 14);
-    ctx.fillText(`DEPTH ${this.depth + 1}`, this.cx, Math.max(40, this.h * 0.1));
-    ctx.globalAlpha = 1;
-    ctx.font = font(700, 32);
-    ctx.fillText("TAKE ONE", this.cx, Math.max(78, this.h * 0.16));
-    ctx.globalAlpha = 0.45;
-    ctx.font = font(500, 14);
-    ctx.fillText("TAP A CARD   ·   1  2  3", this.cx, hintY);
-    ctx.globalAlpha = 1;
-
-    const wide = this.w >= 720;
-    cards.forEach((card, i) => {
-      const hover = this.draftHover === i;
-      ctx.globalAlpha = hover ? 0.18 : 0.08;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(card.x, card.y, card.w, card.h);
-      ctx.globalAlpha = hover ? 1 : 0.65;
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = hover ? 2.5 : 1.4;
-      ctx.strokeRect(card.x + 1, card.y + 1, card.w - 2, card.h - 2);
-
-      ctx.fillStyle = "#fff";
-      if (wide) {
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.globalAlpha = hover ? 1 : 0.5;
-        ctx.font = font(700, 36);
-        ctx.fillText(String(i + 1), card.x + card.w / 2, card.y + card.h * 0.22);
-        ctx.globalAlpha = 1;
-        ctx.font = font(700, 22);
-        ctx.fillText(card.relic.name, card.x + card.w / 2, card.y + card.h * 0.5);
-        ctx.globalAlpha = 0.65;
-        ctx.font = font(500, 15);
-        ctx.fillText(card.relic.line, card.x + card.w / 2, card.y + card.h * 0.72);
-      } else {
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.globalAlpha = hover ? 1 : 0.5;
-        ctx.font = font(700, 42);
-        ctx.fillText(String(i + 1), card.x + 22, card.y + card.h / 2);
-        ctx.textAlign = "center";
-        ctx.globalAlpha = 1;
-        ctx.font = font(700, 22);
-        ctx.fillText(card.relic.name, this.cx, card.y + card.h * 0.38);
-        ctx.globalAlpha = 0.7;
-        ctx.font = font(500, 16);
-        ctx.fillText(card.relic.line, this.cx, card.y + card.h * 0.68);
-      }
-      ctx.globalAlpha = 1;
+    const word = depthWord(this.depth);
+    this.whisper = word;
+    this.whisperLife = 1.8;
+    this.mode = "play";
+    this.resetUniverse(false);
+    log("combo-carry", {
+      combo: carried,
+      pStreak: carriedStreak,
+      mul: streakMul(carriedStreak),
+      depth: this.depth,
+      word,
+      hearts: this.hearts,
     });
-    ctx.restore();
+    this.universeFresh = false;
+    this.applyTap("perfect", 0, 0);
+    this.beginNextCycle(0.45);
+    log("first light", { depth: this.depth, combo: this.combo, pStreak: this.perfectStreak, auto: true });
   }
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
@@ -983,17 +870,24 @@ export class Game {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
     ctx.font = font(700, 72);
-    strokeText(ctx, String(this.score), this.cx, this.cy - 48, 10);
+    strokeText(ctx, String(this.score), this.cx, this.cy - 64, 10);
     ctx.font = font(600, 18);
     ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + 24);
+    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + 8);
     ctx.globalAlpha = 0.45;
     ctx.font = font(500, 16);
-    ctx.fillText(this.newBest ? `DEPTH ${this.depth}   ·   BEST ${this.best}` : `BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + 56);
-    if (this.relics.length > 0) {
-      ctx.font = font(500, 14);
-      ctx.fillText(this.relics.slice(0, 8).join("  ·  "), this.cx, this.cy + 92);
-    }
+    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + 40);
+
+    ctx.font = font(500, 13);
+    const gap = Math.min(92, (this.w - 80) / DISCOVERY_ORDER.length);
+    const rowW = gap * (DISCOVERY_ORDER.length - 1);
+    const x0 = this.cx - rowW / 2;
+    DISCOVERY_ORDER.forEach((id, i) => {
+      const known = this.found.has(id);
+      ctx.globalAlpha = known ? 0.7 : 0.22;
+      ctx.fillText(known ? DISCOVERY_LABEL[id] : "·", x0 + i * gap, this.cy + 84);
+    });
+
     ctx.globalAlpha = 0.4;
     ctx.font = font(500, 16);
     ctx.fillText("TAP  TO  BEGIN", this.cx, this.h - 48);
@@ -1096,19 +990,6 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    if (this.mode === "play") {
-      ctx.globalAlpha = 0.4;
-      ctx.font = font(500, 13);
-      ctx.textAlign = "right";
-      ctx.textBaseline = "middle";
-      if (this.relics.length > 0) {
-        ctx.fillText(`${this.relics.length} relic${this.relics.length === 1 ? "" : "s"}`, hud.relicX, hud.relicY);
-      } else if (this.universes > 0) {
-        ctx.fillText(`${this.universes} universe${this.universes === 1 ? "" : "s"}`, hud.relicX, hud.relicY);
-      }
-      ctx.globalAlpha = 1;
-    }
-
     if (this.banging && this.bangT > 0.75 && this.mode === "play") {
       const fade = clamp((this.bangT - 0.75) / 0.25, 0, 1) * (this.bangT > 2.4 ? 1 - clamp((this.bangT - 2.4) / 0.6, 0, 1) : 1);
       ctx.globalAlpha = fade;
@@ -1121,11 +1002,32 @@ export class Game {
       if (this.bangT > 0.55) {
         ctx.globalAlpha = fade * 0.55;
         ctx.font = font(500, 16);
-        ctx.fillText("TAP  TO  CHOOSE", this.cx, this.cy + 70);
+        ctx.fillText("TAP  TO  GO  DEEPER", this.cx, this.cy + 70);
       }
       ctx.globalAlpha = 1;
     }
 
+    ctx.restore();
+  }
+
+  private drawHearts(ctx: CanvasRenderingContext2D): void {
+    if (this.mode !== "play" || !this.started) return;
+    const hud = this.hudLayout();
+    const gap = 16;
+    ctx.save();
+    ctx.strokeStyle = "#fff";
+    ctx.fillStyle = "#fff";
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < MAX_HEARTS; i++) {
+      const x = hud.heartX - (MAX_HEARTS - 1 - i) * gap;
+      const y = hud.heartY;
+      const filled = i < this.hearts;
+      ctx.globalAlpha = filled ? (this.hearts === 1 ? 0.9 : 0.7) : 0.22;
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      if (filled) ctx.fill();
+      else ctx.stroke();
+    }
     ctx.restore();
   }
 
