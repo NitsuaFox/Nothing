@@ -92,7 +92,7 @@ void bootWavedash({
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothing = game;
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothingPlatform = platform;
 log("boot", {
-  debug: "window.nothing (Game, endRun, previewDead) · window.nothingPlatform · ?preview=dead",
+  debug: "window.nothing (Game, endRun, previewDead, debugState) · window.nothingPlatform · ?preview=dead",
   touch: "ontouchstart" in window,
   coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
 });

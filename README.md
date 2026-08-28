@@ -16,7 +16,7 @@ The SDK is injected on Wavedash. Local Vite play uses a stub so identity, boards
 | --- | --- |
 | Identity | Shows your Wavedash username (or `YOU` locally) on the waiting-dot menu and death screen |
 | Leaderboards | `high-scores`, `depth`, and `combo` — created at runtime, best kept, shown on the waiting-dot menu + death |
-| Achievements | Base set in `wavedash/catalog.json` (first light, discoveries, streaks, depth, scores) |
+| Achievements | Real run goals in `wavedash/catalog.json` (bang, floors, combo 50/100, score 100k/1M, depth 10) — not first-kiss pops |
 | Stats | Runs, best score/depth/combo, perfects, silences, universes, discoveries |
 | Cloud save | Syncs found words, best score, best depth, and run count across devices |
 | Presence | Friends see `DEPTH n` / `BANG` / `VOID` |
@@ -52,13 +52,15 @@ Boot is a title screen: **WHATTODOGAMES**, then **NOTHING**, then just a point. 
 
 No tutorial. The first tap of a run always lands. After that, the ring is the game.
 
+Wavedash achievements are run goals, not first-kiss trophies. Nothing pops until you bang a universe. After that: depth floors, combo 50/100, score 100k/1M, 25 silences, 100 perfects, a second bang while holding ×3, depth 5 with 3 hearts, the full whisper catalog, ten runs. `npm run test:achievements` checks the rules. Paste `window.nothing.debugState()` from the console if an unlock looks wrong.
+
 ## Run
 
 Each universe is a floor. Fill the mass bar until it bangs. Combo and streak **carry** into the next universe, which opens with a free kiss. Score is run-long.
 
 Combo multiplies every hit. A perfect streak adds a clean extra multiplier: **×1.5** at 4, **×2** at 8, **×3** at 12. Depth multiplies on top.
 
-You have **three lives**, shown as dots. A miss (or letting a create pulse die) costs one. Tapping a **VOID** pulse costs one. Letting a void pass is **SILENCE** — that is free, and it pays. The first universe cannot kill you. From depth 2, the last pip ends the run. Entropy still eats idle mass.
+You have **three lives**, shown as dots. A miss (or letting a create pulse die) costs one. Tapping a **VOID** pulse costs one. Letting a void pass is **SILENCE** — that is free, and it pays. The last pip ends the run on every depth, including the first universe. Entropy still eats idle mass, and an empty bar is death.
 
 Deeper floors get meaner. No shop, no pick — just a word:
 
