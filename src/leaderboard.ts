@@ -41,10 +41,23 @@ function estimateRank(others: RankRow[], me: RankRow): number {
   return others.filter((row) => betterThan(row, me)).length + 1;
 }
 
+/** True only when this run strictly beats the kept board score. Ties stay red. */
+export function didBeatBoard(runScore: number, previousBoard: number): boolean {
+  return runScore > Math.max(0, previousBoard);
+}
+
 /**
- * People next to this run's score: one better, this row, two worse.
- * Works on a partial page (top 8 or around-user) by picking the closest
- * known names, not by assuming the page starts at rank 1.
+ * Score to show on the recap leaderboard row.
+ * Beat: the new kept best (this run). Miss: the actual board best, not this run.
+ */
+export function standingScore(runScore: number, previousBoard: number, improved: boolean): number {
+  if (improved) return Math.max(runScore, Math.max(0, previousBoard));
+  return Math.max(0, previousBoard);
+}
+
+/**
+ * People next to the player's kept board score: one better, this row, two worse.
+ * Do not pass this run's score unless it actually became the board best.
  */
 export function nearLeaderboard(opts: {
   rows: RankRow[];

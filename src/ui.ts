@@ -16,13 +16,25 @@ export function clipName(name: string, max = 14): string {
   return `${text.slice(0, Math.max(1, max - 1))}…`;
 }
 
-export function strokeText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width = 5): void {
+/** Recap: this run beat the board. */
+export const TONE_UP = "#5ee08a";
+/** Recap: this run did not beat the board. */
+export const TONE_DOWN = "#ff4d4d";
+
+export function strokeText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  width = 5,
+  fill = "#fff",
+): void {
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
   ctx.strokeStyle = "rgba(0,0,0,0.85)";
   ctx.lineWidth = width;
   ctx.strokeText(text, x, y);
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = fill;
   ctx.fillText(text, x, y);
 }
 
