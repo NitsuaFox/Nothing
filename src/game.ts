@@ -57,6 +57,7 @@ import {
   onStreak,
   persistProgress,
   platform,
+  pumpUnlocks,
   setPresence,
   toggleHostMute,
 } from "./wavedash";
@@ -175,6 +176,8 @@ export class Game {
   safe: SafeArea = { top: 0, right: 0, bottom: 0, left: 0 };
   platToast = "";
   platToastLife = 0;
+  platToastId = "";
+  unlockToasts: { id: string; title: string }[] = [];
 
   constructor() {
     resetSplashLog();
@@ -385,9 +388,27 @@ export class Game {
   }
 
   toastUnlock(title: string, id: string): void {
+    if (this.platToastId === id && this.platToastLife > 0.1) {
+      log("unlock toast skipped — already showing", { id, title });
+      return;
+    }
+    if (this.unlockToasts.some((row) => row.id === id)) {
+      log("unlock toast skipped — already waiting", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    if (this.platToastLife > 0.25) {
+      this.unlockToasts.push({ id, title });
+      log("unlock toast queued", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    this.beginUnlockToast(id, title);
+  }
+
+  private beginUnlockToast(id: string, title: string): void {
+    this.platToastId = id;
     this.platToast = title;
-    this.platToastLife = 1.8;
-    log("unlock toast", { id, title });
+    this.platToastLife = 3.1;
+    log("unlock toast", { id, title, waiting: this.unlockToasts.length });
   }
 
   snapshot(): ProgressSnapshot {
@@ -431,6 +452,11 @@ export class Game {
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.whisperLife = Math.max(0, this.whisperLife - dt);
     this.platToastLife = Math.max(0, this.platToastLife - dt);
+    if (this.platToastLife <= 0 && this.unlockToasts.length > 0) {
+      const next = this.unlockToasts.shift();
+      if (next) this.beginUnlockToast(next.id, next.title);
+    }
+    pumpUnlocks(dt, this.banging || this.mode === "splash");
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
     this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);

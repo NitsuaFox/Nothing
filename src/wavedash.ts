@@ -16,6 +16,13 @@ import {
   STATS,
   WAVEDASH_GAME_ID,
 } from "./wavedash-catalog";
+import {
+  commitUnlock,
+  createUnlockQueue,
+  enqueueUnlock,
+  skipUnlock,
+  tickUnlockQueue,
+} from "./unlock-queue";
 import { createWavedashStub } from "./wavedash-stub";
 
 type Meta = Record<string, string | number>;
@@ -124,6 +131,7 @@ const friendIds = new Set<string>();
 let firstLight = false;
 let presenceKey = "";
 let saveTimer = 0;
+const unlocks = createUnlockQueue();
 
 function unwrap<T>(value: Ok<T> | T | null | undefined, fallback: T): T {
   if (value == null) return fallback;
@@ -259,19 +267,45 @@ export function unlockAchievement(id: string): void {
   if (!host) return;
   try {
     if (host.getAchievement?.(id)) return;
+    enqueueUnlock(unlocks, id);
+  } catch (error) {
+    log("wavedash unlock failed", { id, error: String(error) });
+  }
+}
+
+function fireUnlock(id: string): void {
+  if (!host) return;
+  try {
     const ok = host.setAchievement?.(id, true) ?? false;
-    if (!ok && host.setAchievement) {
-      // some hosts return false when the id is unknown — still log
-    }
     if (host.getAchievement?.(id) || ok) {
       const title = ACHIEVEMENT_TITLE[id] ?? id;
       platform.lastUnlock = title;
-      log("wavedash unlock", { id, title, hosted: platform.hosted });
+      log("wavedash unlock", {
+        id,
+        title,
+        hosted: platform.hosted,
+        fired: unlocks.fired,
+        waiting: unlocks.pending.length,
+      });
       hooks.onUnlock?.(id, title);
+    } else {
+      log("wavedash unlock not confirmed", { id, ok });
     }
   } catch (error) {
     log("wavedash unlock failed", { id, error: String(error) });
   }
+}
+
+/** Drain one queued achievement pop. Hold during bang / splash so they don't stack on those beats. */
+export function pumpUnlocks(dt: number, hold: boolean): void {
+  const ready = tickUnlockQueue(unlocks, dt, hold);
+  if (!ready) return;
+  if (host?.getAchievement?.(ready)) {
+    skipUnlock(unlocks, "already owned");
+    return;
+  }
+  commitUnlock(unlocks);
+  fireUnlock(ready);
 }
 
 async function pullCloud(local: ProgressSnapshot): Promise<void> {
