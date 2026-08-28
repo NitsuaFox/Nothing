@@ -2,7 +2,7 @@ import { AudioEngine, type TapKind } from "./audio";
 import { log } from "./debug";
 import { depthMods, depthWord, type DepthMods } from "./depth";
 import { Juice } from "./juice";
-import { clamp, lerp } from "./math";
+import { clamp, lerp, whiteToRed } from "./math";
 import {
   KISS,
   baseOrbRadius,
@@ -471,10 +471,16 @@ export class Game {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.w, this.h);
 
+    const hurt = this.juice.hurt;
+    if (hurt > 0.01) {
+      ctx.fillStyle = `rgba(150, 6, 12, ${hurt * 0.7})`;
+      ctx.fillRect(0, 0, this.w, this.h);
+    }
+
     if (this.intro.skyAlpha > 0.01) {
       ctx.save();
       ctx.globalAlpha = this.intro.skyAlpha;
-      this.sky.draw(ctx, this.w, this.h);
+      this.sky.draw(ctx, this.w, this.h, hurt);
       ctx.restore();
     }
 
@@ -493,8 +499,8 @@ export class Game {
       if (this.started && !this.banging && this.mode === "play" && this.cycleArmed) {
         ctx.beginPath();
         ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255,255,255,0.14)";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = whiteToRed(hurt, 0.14 + hurt * 0.7);
+        ctx.lineWidth = 1 + hurt * 2;
         ctx.stroke();
       }
 
@@ -509,7 +515,7 @@ export class Game {
         const voidPulse = this.pulseKind === "void";
         this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
         const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
-        drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
+        drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind, hurt);
       }
 
       drawOrb(
@@ -522,9 +528,10 @@ export class Game {
         this.squashX,
         this.squashY,
         this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
+        hurt,
       );
 
-      this.particles.draw(ctx);
+      this.particles.draw(ctx, hurt);
       ctx.restore();
     }
 
@@ -621,6 +628,12 @@ export class Game {
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
       this.lastGain = 0;
       onKiss("miss");
+      log("miss red flash", {
+        hearts: this.hearts,
+        mass: Number(this.mass.toFixed(2)),
+        depth: this.depth,
+        hurt: 1,
+      });
       this.loseLife("miss");
     }
 

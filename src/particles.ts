@@ -1,4 +1,4 @@
-import { rand } from "./math";
+import { rand, whiteToRed } from "./math";
 
 export type ParticleKind = "burst" | "orbit" | "vacuum" | "star";
 
@@ -181,12 +181,12 @@ export class Particles {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  draw(ctx: CanvasRenderingContext2D, redFlash = 0): void {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     for (const p of this.list) {
       const fade = p.kind === "orbit" ? 0.85 : Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = `rgba(255,255,255,${fade})`;
+      ctx.fillStyle = whiteToRed(redFlash, fade);
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
