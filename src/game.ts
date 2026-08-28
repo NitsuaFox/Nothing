@@ -496,7 +496,8 @@ export class Game {
       ctx.globalAlpha = this.intro.orbAlpha;
       ctx.translate(ox, oy);
 
-      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed) {
+      const showRing = this.started && !this.banging && this.mode === "play" && this.cycleArmed;
+      if (showRing) {
         ctx.beginPath();
         ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
         ctx.strokeStyle = whiteToRed(hurt, 0.14 + hurt * 0.7);
@@ -504,7 +505,7 @@ export class Game {
         ctx.stroke();
       }
 
-      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed && this.gameTime >= this.cycleStart) {
+      if (showRing && this.gameTime >= this.cycleStart) {
         const p = this.cycleProgress();
         const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
         const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
@@ -516,6 +517,15 @@ export class Game {
         this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
         const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
         drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind, hurt);
+      }
+
+      if (hurt > 0.01 && this.mode === "play") {
+        const missR = Math.max(this.orbRadius() * 1.8, 22);
+        ctx.beginPath();
+        ctx.arc(cx, cy, missR, 0, Math.PI * 2);
+        ctx.strokeStyle = whiteToRed(hurt, 0.35 + hurt * 0.65);
+        ctx.lineWidth = 2.4 + hurt * 3.2;
+        ctx.stroke();
       }
 
       drawOrb(
@@ -633,6 +643,7 @@ export class Game {
         mass: Number(this.mass.toFixed(2)),
         depth: this.depth,
         hurt: 1,
+        circleR: Number(Math.max(this.orbRadius() * 1.8, 22).toFixed(1)),
       });
       this.loseLife("miss");
     }
