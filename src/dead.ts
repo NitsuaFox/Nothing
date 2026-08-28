@@ -8,7 +8,7 @@ import {
   type DiscoveryId,
 } from "./progress";
 import { nearLeaderboard, type RankRow } from "./leaderboard";
-import { clipName, fillTracked, fitTrackedSize, font, formatScore, strokeText } from "./ui";
+import { clipName, fillTracked, fitTrackedSize, font, formatScore, strokeText, TONE_DOWN, TONE_UP } from "./ui";
 
 export type DeadView = {
   w: number;
@@ -28,6 +28,9 @@ export type DeadView = {
   username: string;
   userId: string;
   submittedRank: number | null;
+  boardScore: number;
+  boardRank: number | null;
+  boardImproved: boolean;
   board: RankRow[];
   around: RankRow[];
   found: ReadonlySet<DiscoveryId>;
@@ -68,6 +71,9 @@ function mergeRows(view: DeadView): RankRow[] {
 function logDeadOnce(view: DeadView, near: RankRow[]): void {
   const key = [
     view.score,
+    view.boardScore,
+    view.boardRank,
+    view.boardImproved,
     view.depth,
     view.deathReason,
     near.map((row) => `${row.rank}:${row.name}`).join(","),
@@ -84,6 +90,9 @@ function logDeadOnce(view: DeadView, near: RankRow[]): void {
     depth: view.depth,
     peakCombo: view.peakCombo,
     rank: view.submittedRank,
+    boardScore: view.boardScore,
+    boardRank: view.boardRank,
+    boardImproved: view.boardImproved,
     near: near.map((row) => ({
       rank: row.rank,
       name: row.name,
@@ -100,10 +109,10 @@ function logDeadOnce(view: DeadView, near: RankRow[]): void {
 export function drawDeadScreen(ctx: CanvasRenderingContext2D, view: DeadView): void {
   const near = nearLeaderboard({
     rows: mergeRows(view),
-    score: view.score,
+    score: view.boardScore,
     name: view.username,
     userId: view.userId,
-    rank: view.submittedRank,
+    rank: view.boardRank,
   });
   logDeadOnce(view, near);
 
@@ -176,9 +185,11 @@ function drawScoreBlock(
   ctx.globalAlpha = 0.5;
   const scoreLabel = view.compact ? 11 : 13;
   ctx.font = font(600, scoreLabel);
+  ctx.fillStyle = "#fff";
   fillTracked(ctx, "SCORE", cx, y, 10);
   y += scoreLabel + (view.compact ? 8 : 10);
 
+  const tone = view.boardImproved ? TONE_UP : TONE_DOWN;
   const scoreText = formatScore(view.score);
   const budget = tall * (wide ? 0.22 : view.compact ? 0.18 : 0.2);
   const maxScore = clamp(
@@ -190,15 +201,19 @@ function drawScoreBlock(
   const scoreY = y + fitted.size * 0.5;
   ctx.globalAlpha = 1;
   ctx.font = font(800, fitted.size);
-  strokeText(ctx, scoreText, cx, scoreY, Math.max(8, fitted.size * 0.08));
+  strokeText(ctx, scoreText, cx, scoreY, Math.max(8, fitted.size * 0.08), tone);
   y = scoreY + fitted.size * 0.5 + (view.compact ? 14 : 18);
 
-  ctx.globalAlpha = view.newBest ? 0.82 : 0.48;
+  ctx.fillStyle = tone;
+  ctx.globalAlpha = 0.9;
   ctx.font = font(600, view.compact ? 13 : 15);
-  const kicker = view.newBest ? "NEW BEST" : `BEST ${formatScore(view.best)}`;
+  const boardText = formatScore(view.boardScore);
+  const rankBit = view.boardRank && view.boardRank > 0 ? `#${view.boardRank}  ` : "";
+  const kicker = view.boardImproved ? `NEW BEST  ${rankBit}${boardText}`.trim() : `BEST  ${rankBit}${boardText}`.trim();
   ctx.fillText(kicker, cx, y);
   y += view.compact ? 20 : 24;
 
+  ctx.fillStyle = "#fff";
   ctx.globalAlpha = 0.42;
   ctx.font = font(500, view.compact ? 12 : 14);
   ctx.fillText(`DEPTH ${view.depth}   ·   PEAK COMBO ${view.peakCombo}`, cx, y);
@@ -225,7 +240,8 @@ function drawNearBlock(
   ctx.textAlign = "left";
   ctx.globalAlpha = 0.34;
   ctx.font = font(600, view.compact ? 10 : 11);
-  ctx.fillText("NEAR YOUR SCORE", x, y);
+  ctx.fillStyle = "#fff";
+  ctx.fillText("LEADERBOARD", x, y);
   ctx.globalAlpha = 0.28;
   ctx.font = font(500, view.compact ? 10 : 11);
   ctx.textAlign = "right";
@@ -240,11 +256,11 @@ function drawNearBlock(
     const ry = rowTop + i * rowH + rowH / 2;
     if (ry > y + h - 4) return;
     if (row.mine) {
-      ctx.globalAlpha = 0.1;
-      ctx.fillStyle = "#fff";
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = view.boardImproved ? TONE_UP : TONE_DOWN;
       ctx.fillRect(x - 6, ry - rowH / 2 + 1, w + 12, rowH - 2);
     }
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = row.mine ? (view.boardImproved ? TONE_UP : TONE_DOWN) : "#fff";
     ctx.globalAlpha = row.mine ? 0.95 : 0.48;
     ctx.font = font(row.mine ? 700 : 500, view.compact ? 12 : 14);
     ctx.textAlign = "left";

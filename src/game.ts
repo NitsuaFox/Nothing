@@ -29,6 +29,7 @@ import {
   type ProgressSnapshot,
 } from "./progress";
 import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
+import { standingScore } from "./leaderboard";
 import { Sky } from "./sky";
 import {
   EMPTY_SAFE,
@@ -490,8 +491,15 @@ export class Game {
       peakCombo: this.peakCombo,
       found: [...this.found],
       thisRun: [...this.discoveredThisRun],
+      myScore: platform.myScore,
+      myRank: platform.myRank,
       board: platform.board.map((row) => `${row.rank}:${row.name}:${row.score}`),
     });
+    const forced = Number(new URLSearchParams(window.location.search).get("board"));
+    if (Number.isFinite(forced) && forced >= 0) {
+      platform.myScore = forced;
+      log("debug preview board override", { board: forced, run: this.score });
+    }
     this.die(reason);
   }
 
@@ -529,6 +537,12 @@ export class Game {
       waitingToasts: this.unlockToasts.map((row) => row.id),
       earned: earnedAchievements(snap),
       hud: hudSnapshot(this.hud),
+      board: {
+        myScore: platform.myScore,
+        myRank: platform.myRank,
+        delta: platform.boardDelta,
+        around: platform.around.map((row) => `${row.rank}:${row.mine ? "YOU" : row.name}:${row.score}`),
+      },
       snap,
     };
     log("debug state", dump);
@@ -1105,6 +1119,7 @@ export class Game {
     this.deathReason = reason;
     this.runsPlayed += 1;
     saveRuns(this.runsPlayed);
+    const previousBoard = platform.myScore && platform.myScore > 0 ? platform.myScore : this.best;
     this.newBest = this.score > this.best;
     if (this.newBest) {
       this.best = this.score;
@@ -1123,6 +1138,7 @@ export class Game {
       combo: this.peakCombo,
       found: this.found.size,
       reason,
+      previousBoard,
     });
     this.pushAchievements();
     persistProgress();
@@ -1136,6 +1152,10 @@ export class Game {
       thisRun: [...this.discoveredThisRun],
       best: this.best,
       newBest: this.newBest,
+      previousBoard,
+      boardDelta: platform.boardDelta,
+      myScore: platform.myScore,
+      myRank: platform.myRank,
       submittedRank: platform.submittedRank,
       around: platform.around.map((row) => `${row.rank}:${row.name}`),
     });
@@ -1336,6 +1356,10 @@ export class Game {
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
     const hud = this.hud;
+    const previous = platform.boardDelta?.previous ?? (platform.myScore && platform.myScore > 0 ? platform.myScore : this.best);
+    const improved = platform.boardDelta?.improved ?? this.score > previous;
+    const boardScore = standingScore(this.score, previous, improved);
+    const boardRank = platform.myRank;
     drawDeadScreen(ctx, {
       w: this.w,
       h: this.h,
@@ -1359,6 +1383,9 @@ export class Game {
       username: platform.username,
       userId: platform.userId,
       submittedRank: platform.submittedRank,
+      boardScore,
+      boardRank,
+      boardImproved: improved,
       board: platform.board,
       around: platform.around,
       found: this.found,

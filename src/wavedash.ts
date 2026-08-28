@@ -15,7 +15,7 @@ import {
   WAVEDASH_GAME_ID,
 } from "./wavedash-catalog";
 import { earnedAchievements, logAchievementCheck, type AchievementSnap } from "./achievements";
-import { aroundLimit, aroundOffset, NEAR_DOWN, NEAR_UP } from "./leaderboard";
+import { aroundLimit, aroundOffset, didBeatBoard, NEAR_DOWN, NEAR_UP } from "./leaderboard";
 import {
   commitUnlock,
   createUnlockQueue,
@@ -50,6 +50,13 @@ export type BoardRow = {
   combo?: number;
 };
 
+/** Snapshotted at death so the recap can color beat vs miss after the upload. */
+export type BoardDelta = {
+  previous: number;
+  run: number;
+  improved: boolean;
+};
+
 export type PlatformState = {
   gameId: string;
   hosted: boolean;
@@ -62,6 +69,7 @@ export type PlatformState = {
   myRank: number | null;
   myScore: number | null;
   submittedRank: number | null;
+  boardDelta: BoardDelta | null;
   lastUnlock: string;
   friends: number;
 };
@@ -130,6 +138,7 @@ export const platform: PlatformState = {
   myRank: null,
   myScore: null,
   submittedRank: null,
+  boardDelta: null,
   lastUnlock: "",
   friends: 0,
 };
@@ -493,13 +502,33 @@ export function syncAchievements(snap: AchievementSnap): void {
   logAchievementCheck(snap, fresh);
 }
 
+export function noteBoardRun(runScore: number, previousBoard: number): BoardDelta {
+  const previous = Math.max(0, previousBoard || 0);
+  const delta: BoardDelta = {
+    previous,
+    run: runScore,
+    improved: didBeatBoard(runScore, previous),
+  };
+  platform.boardDelta = delta;
+  log("wavedash board delta", {
+    previous: delta.previous,
+    run: delta.run,
+    improved: delta.improved,
+    myRank: platform.myRank,
+    myScore: platform.myScore,
+  });
+  return delta;
+}
+
 export function onRunOver(run: {
   score: number;
   depth: number;
   combo: number;
   found: number;
   reason: string;
+  previousBoard: number;
 }): void {
+  noteBoardRun(run.score, run.previousBoard);
   bumpStat(STATS.runs, 1);
   maxStat(STATS.bestScore, run.score);
   maxStat(STATS.bestDepth, run.depth);
@@ -534,17 +563,24 @@ async function submitRun(run: { score: number; depth: number; combo: number; fou
         submittedRank: data && typeof data === "object" ? (data as { submittedRank?: number }).submittedRank : null,
       });
       if (job.name === BOARDS.score && data && typeof data === "object") {
-        const box = data as { globalRank?: number; submittedRank?: number };
+        const box = data as { globalRank?: number; submittedRank?: number; score?: number };
         const standing = Number(box.globalRank);
         const submitted = Number(box.submittedRank);
+        const kept = Number(box.score);
         if (Number.isFinite(standing) && standing > 0) platform.myRank = standing;
         if (Number.isFinite(submitted) && submitted > 0) platform.submittedRank = submitted;
-        else if (Number.isFinite(standing) && standing > 0) platform.submittedRank = standing;
-        platform.myScore = run.score;
+        if (Number.isFinite(kept) && kept > 0) {
+          platform.myScore = kept;
+        } else if (platform.boardDelta?.improved) {
+          platform.myScore = run.score;
+        }
         log("wavedash score standing", {
-          score: run.score,
+          run: run.score,
+          kept: Number.isFinite(kept) ? kept : null,
+          myScore: platform.myScore,
           myRank: platform.myRank,
           submittedRank: platform.submittedRank,
+          improved: platform.boardDelta?.improved ?? null,
         });
       }
     } catch (error) {
@@ -552,7 +588,13 @@ async function submitRun(run: { score: number; depth: number; combo: number; fou
     }
   }
   await refreshScoreBoard();
-  await refreshAround(platform.submittedRank ?? platform.myRank);
+  await refreshAround(platform.myRank);
+  log("wavedash recap board ready", {
+    myScore: platform.myScore,
+    myRank: platform.myRank,
+    around: platform.around.map((row) => `${row.rank}:${row.mine ? "YOU" : row.name}:${row.score}`),
+    improved: platform.boardDelta?.improved ?? null,
+  });
 }
 
 export async function bootWavedash(next: PlatformHooks): Promise<void> {
