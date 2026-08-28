@@ -18,3 +18,11 @@ export function easeOutCubic(t: number): number {
 export function easeInCubic(t: number): number {
   return t * t * t;
 }
+
+/** Mix white toward a hot red. `t` 0 = white, 1 = red. */
+export function whiteToRed(t: number, alpha: number): string {
+  const k = clamp(t, 0, 1);
+  const g = Math.round(lerp(255, 28, k));
+  const b = Math.round(lerp(255, 20, k));
+  return `rgba(255,${g},${b},${alpha})`;
+}
