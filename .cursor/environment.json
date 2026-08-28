@@ -1,0 +1,16 @@
+{
+  "name": "Nothing",
+  "install": "npm ci",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [
+    {
+      "name": "vite",
+      "port": 4177
+    }
+  ]
+}
