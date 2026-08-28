@@ -412,6 +412,35 @@ export class Game {
     this.die(reason);
   }
 
+  /**
+   * Debug: skip the title and open the recap with a sample score + finds.
+   * `window.nothing.previewDead()` or `?preview=dead`
+   */
+  previewDead(reason = "void"): void {
+    this.skippedSplash = true;
+    this.skipFade = 1;
+    this.intro = menuLook();
+    this.splashT = SPLASH_END;
+    this.score = Math.max(this.score, 120);
+    this.depth = Math.max(this.depth, 2);
+    this.peakCombo = Math.max(this.peakCombo, 8);
+    const sample: DiscoveryId[] = ["spark", "star", "giant", "silence"];
+    for (const id of sample) {
+      this.found.add(id);
+      if (!this.discoveredThisRun.includes(id)) this.discoveredThisRun.push(id);
+    }
+    log("debug preview dead", {
+      reason,
+      score: this.score,
+      depth: this.depth,
+      peakCombo: this.peakCombo,
+      found: [...this.found],
+      thisRun: [...this.discoveredThisRun],
+      board: platform.board.map((row) => `${row.rank}:${row.name}:${row.score}`),
+    });
+    this.die(reason);
+  }
+
   movePointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
