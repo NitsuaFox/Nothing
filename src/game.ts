@@ -1,3 +1,4 @@
+import { earnedAchievements } from "./achievements";
 import { AudioEngine, type TapKind } from "./audio";
 import { log } from "./debug";
 import { depthMods, depthWord, type DepthMods } from "./depth";
@@ -57,7 +58,9 @@ import {
   onStreak,
   persistProgress,
   platform,
+  pumpUnlocks,
   setPresence,
+  syncAchievements,
   toggleHostMute,
 } from "./wavedash";
 
@@ -104,6 +107,7 @@ export class Game {
   discoveredThisRun: DiscoveryId[] = [];
   perfectStreak = 0;
   silences = 0;
+  perfectsThisRun = 0;
   pulseIndex = 0;
   pulseKind: PulseKind = "create";
   whisper = "";
@@ -175,6 +179,8 @@ export class Game {
   safe: SafeArea = { top: 0, right: 0, bottom: 0, left: 0 };
   platToast = "";
   platToastLife = 0;
+  platToastId = "";
+  unlockToasts: { id: string; title: string }[] = [];
 
   constructor() {
     resetSplashLog();
@@ -385,9 +391,43 @@ export class Game {
   }
 
   toastUnlock(title: string, id: string): void {
+    if (this.platToastId === id && this.platToastLife > 0.1) {
+      log("unlock toast skipped — already showing", { id, title });
+      return;
+    }
+    if (this.unlockToasts.some((row) => row.id === id)) {
+      log("unlock toast skipped — already waiting", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    if (this.platToastLife > 0.25) {
+      this.unlockToasts.push({ id, title });
+      log("unlock toast queued", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    this.beginUnlockToast(id, title);
+  }
+
+  private pushAchievements(): void {
+    syncAchievements({
+      score: this.score,
+      combo: this.combo,
+      peakCombo: this.peakCombo,
+      depth: this.depth,
+      hearts: this.hearts,
+      perfects: this.perfectsThisRun,
+      silences: this.silences,
+      universes: this.universes,
+      perfectStreak: this.perfectStreak,
+      found: this.found.size,
+      runs: this.runsPlayed,
+    });
+  }
+
+  private beginUnlockToast(id: string, title: string): void {
+    this.platToastId = id;
     this.platToast = title;
-    this.platToastLife = 1.8;
-    log("unlock toast", { id, title });
+    this.platToastLife = 3.1;
+    log("unlock toast", { id, title, waiting: this.unlockToasts.length });
   }
 
   snapshot(): ProgressSnapshot {
@@ -412,6 +452,45 @@ export class Game {
     this.die(reason);
   }
 
+  /** Debug dump for console paste-back. `window.nothing.debugState()` */
+  debugState(): Record<string, unknown> {
+    const progress = this.cycleProgress();
+    const snap = {
+      score: this.score,
+      combo: this.combo,
+      peakCombo: this.peakCombo,
+      depth: this.depth,
+      hearts: this.hearts,
+      perfects: this.perfectsThisRun,
+      silences: this.silences,
+      universes: this.universes,
+      perfectStreak: this.perfectStreak,
+      found: this.found.size,
+      runs: this.runsPlayed,
+    };
+    const dump = {
+      mode: this.mode,
+      phase: this.phase,
+      started: this.started,
+      cycleArmed: this.cycleArmed,
+      pulseKind: this.pulseKind,
+      pulseIndex: this.pulseIndex,
+      progress: Number(progress.toFixed(3)),
+      period: Number(this.period.toFixed(3)),
+      mass: Number(this.mass.toFixed(2)),
+      bangNeed: this.bangNeed(),
+      banging: this.banging,
+      platToast: this.platToast,
+      platToastLife: Number(this.platToastLife.toFixed(2)),
+      platToastId: this.platToastId,
+      waitingToasts: this.unlockToasts.map((row) => row.id),
+      earned: earnedAchievements(snap),
+      snap,
+    };
+    log("debug state", dump);
+    return dump;
+  }
+
   movePointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
@@ -431,6 +510,11 @@ export class Game {
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.whisperLife = Math.max(0, this.whisperLife - dt);
     this.platToastLife = Math.max(0, this.platToastLife - dt);
+    if (this.platToastLife <= 0 && this.unlockToasts.length > 0) {
+      const next = this.unlockToasts.shift();
+      if (next) this.beginUnlockToast(next.id, next.title);
+    }
+    pumpUnlocks(dt, this.banging || this.mode === "splash");
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
     this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);
@@ -576,6 +660,7 @@ export class Game {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
       this.perfectStreak += 1;
+      this.perfectsThisRun += 1;
       const add = (1 + Math.min(this.combo, 24) * 0.04) * mods.hitMassMul;
       this.mass += add;
       this.massCreated += add;
@@ -628,6 +713,7 @@ export class Game {
     this.period = (this.phase === "giant" ? tempo * 1.16 : tempo) * mods.periodMul;
     this.juice.punch(kind);
     this.audio.tap(kind, this.combo);
+    this.pushAchievements();
 
     log(
       `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} mul=${streakMul(this.perfectStreak)} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth} hearts=${this.hearts}`,
@@ -710,6 +796,7 @@ export class Game {
     this.grantScore(8 + mods.silenceCombo * 6, this.perfectStreak);
     this.discover("silence");
     onSilence();
+    this.pushAchievements();
     log("silence", {
       silences: this.silences,
       combo: this.combo,
@@ -747,6 +834,7 @@ export class Game {
     log("discovery", { id, label: DISCOVERY_LABEL[id], found: this.found.size });
     onDiscovery(id, this.found.size);
     persistProgress();
+    this.pushAchievements();
   }
 
   private setPhaseWhisper(phase: Phase): void {
@@ -809,6 +897,7 @@ export class Game {
     this.particles.spawnStars(this.cx, this.cy, 90);
     this.sky.collapse();
     onBang(this.universes);
+    this.pushAchievements();
     setPresence("BANG", `DEPTH ${this.depth}`);
     log("bang", {
       score: this.bangScore,
@@ -957,6 +1046,7 @@ export class Game {
       found: this.found.size,
       reason,
     });
+    this.pushAchievements();
     persistProgress();
     log("run over", {
       reason,
@@ -977,6 +1067,7 @@ export class Game {
     this.score = 0;
     this.peakCombo = 0;
     this.silences = 0;
+    this.perfectsThisRun = 0;
     this.discoveredThisRun = [];
     this.universes = 0;
     this.deathReason = "";
@@ -1158,6 +1249,7 @@ export class Game {
     this.applyTap("perfect", 0, 0);
     this.beginNextCycle(0.45);
     onDescend(this.depth, this.combo);
+    this.pushAchievements();
     log("first light", { depth: this.depth, combo: this.combo, pStreak: this.perfectStreak, auto: true });
   }
 

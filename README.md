@@ -16,7 +16,7 @@ The SDK is injected on Wavedash. Local Vite play uses a stub so identity, boards
 | --- | --- |
 | Identity | Shows your Wavedash username (or `YOU` locally) on the waiting-dot menu and death screen |
 | Leaderboards | `high-scores`, `depth`, and `combo` — created at runtime, best kept, shown on the waiting-dot menu + death |
-| Achievements | Base set in `wavedash/catalog.json` (first light, discoveries, streaks, depth, scores) |
+| Achievements | Real run goals in `wavedash/catalog.json` (bang, floors, combo 50/100, score 100k/1M, depth 10) — not first-kiss pops |
 | Stats | Runs, best score/depth/combo, perfects, silences, universes, discoveries |
 | Cloud save | Syncs found words, best score, best depth, and run count across devices |
 | Presence | Friends see `DEPTH n` / `BANG` / `VOID` |
@@ -51,6 +51,8 @@ Boot is a title screen: **WHATTODOGAMES**, then **NOTHING**, then just a point. 
 | Tab | Wavedash overlay (friends, settings) |
 
 No tutorial. The first tap of a run always lands. After that, the ring is the game.
+
+Wavedash achievements are run goals, not first-kiss trophies. Nothing pops until you bang a universe. After that: depth floors, combo 50/100, score 100k/1M, 25 silences, 100 perfects, a second bang while holding ×3, depth 5 with 3 hearts, the full whisper catalog, ten runs. `npm run test:achievements` checks the rules. Paste `window.nothing.debugState()` from the console if an unlock looks wrong.
 
 ## Run
 
