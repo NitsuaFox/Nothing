@@ -114,7 +114,7 @@ export function drawDeadScreen(ctx: CanvasRenderingContext2D, view: DeadView): v
   const bottom = view.tapY - (view.compact ? 22 : 36);
   const width = Math.max(120, right - left);
   const tall = Math.max(160, bottom - top);
-  const wide = !view.compact && view.w >= 860 && tall >= 380;
+  const wide = !view.compact && width >= 720 && tall >= 380;
   const thisRun = new Set(view.discoveredThisRun);
 
   ctx.save();
