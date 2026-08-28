@@ -107,33 +107,37 @@ export function drawDeadScreen(ctx: CanvasRenderingContext2D, view: DeadView): v
   });
   logDeadOnce(view, near);
 
-  const left = view.safe.left + view.pad;
-  const right = view.w - view.safe.right - view.pad;
-  const top = view.safe.top + view.pad + (view.compact ? 6 : 10);
-  const bottom = view.tapY - (view.compact ? 22 : 32);
+  const inset = view.compact ? view.pad : Math.max(view.pad, Math.round(view.w * 0.07));
+  const left = view.safe.left + inset;
+  const right = view.w - view.safe.right - inset;
+  const top = view.safe.top + (view.compact ? 52 : Math.max(view.pad, 20));
+  const bottom = view.tapY - (view.compact ? 22 : 36);
   const width = Math.max(120, right - left);
   const tall = Math.max(160, bottom - top);
   const wide = !view.compact && view.w >= 860 && tall >= 380;
+  const thisRun = new Set(view.discoveredThisRun);
 
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.46)";
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
   ctx.fillRect(0, 0, view.w, view.h);
 
   const scoreBlock = drawScoreBlock(ctx, view, view.cx, top, width, tall, wide);
 
   if (wide) {
-    const splitY = scoreBlock.bottom + clamp(tall * 0.04, 16, 28);
-    const gap = 36;
+    const actH = 92;
+    const gap = 48;
+    const splitY = scoreBlock.bottom + 22;
+    const mainH = Math.max(120, bottom - splitY - actH);
     const colW = (width - gap) / 2;
-    const colH = bottom - splitY;
-    drawNearBlock(ctx, view, near, left, splitY, colW, colH);
-    drawDiscoveryBlock(ctx, view, left + colW + gap, splitY, colW, colH);
+    drawNearBlock(ctx, view, near, left, splitY, colW, mainH);
+    drawDiscoveryGroup(ctx, view, { kind: "phase", ids: PHASE_IDS }, thisRun, left + colW + gap, splitY, colW, mainH, "stack");
+    drawDiscoveryGroup(ctx, view, { kind: "act", ids: ACT_IDS }, thisRun, left, splitY + mainH + 10, width, actH, "row");
   } else {
     const splitY = scoreBlock.bottom + (view.compact ? 14 : 20);
-    const nearH = clamp(tall * 0.28, 88, 150);
+    const nearH = clamp(tall * 0.26, 84, 140);
     drawNearBlock(ctx, view, near, left, splitY, width, nearH);
     const discY = splitY + nearH + (view.compact ? 10 : 16);
-    drawDiscoveryBlock(ctx, view, left, discY, width, bottom - discY);
+    drawDiscoveryBlock(ctx, view, left, discY, width, bottom - discY, thisRun);
   }
 
   ctx.textAlign = "center";
@@ -169,7 +173,7 @@ function drawScoreBlock(
   fillTracked(ctx, headline, cx, y, 6);
   y += headSize + (view.compact ? 16 : 20);
 
-  ctx.globalAlpha = 0.38;
+  ctx.globalAlpha = 0.5;
   const scoreLabel = view.compact ? 11 : 13;
   ctx.font = font(600, scoreLabel);
   fillTracked(ctx, "SCORE", cx, y, 10);
@@ -262,15 +266,10 @@ function drawDiscoveryBlock(
   y: number,
   w: number,
   h: number,
+  thisRun: Set<DiscoveryId>,
 ): void {
   if (h < 56) return;
-  const thisRun = new Set(view.discoveredThisRun);
-  const twoCol = w >= 420 && h < 220;
-  const groups: Array<{ kind: "phase" | "act"; ids: DiscoveryId[] }> = [
-    { kind: "phase", ids: PHASE_IDS },
-    { kind: "act", ids: ACT_IDS },
-  ];
-
+  const twoCol = w >= 420 && h < 240;
   ctx.save();
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "middle";
@@ -278,12 +277,12 @@ function drawDiscoveryBlock(
   if (twoCol) {
     const gap = 28;
     const colW = (w - gap) / 2;
-    drawDiscoveryGroup(ctx, view, groups[0]!, thisRun, x, y, colW, h);
-    drawDiscoveryGroup(ctx, view, groups[1]!, thisRun, x + colW + gap, y, colW, h);
+    drawDiscoveryGroup(ctx, view, { kind: "phase", ids: PHASE_IDS }, thisRun, x, y, colW, h, "stack");
+    drawDiscoveryGroup(ctx, view, { kind: "act", ids: ACT_IDS }, thisRun, x + colW + gap, y, colW, h, "stack");
   } else {
     const phaseH = h * 0.62;
-    drawDiscoveryGroup(ctx, view, groups[0]!, thisRun, x, y, w, phaseH);
-    drawDiscoveryGroup(ctx, view, groups[1]!, thisRun, x, y + phaseH, w, h - phaseH);
+    drawDiscoveryGroup(ctx, view, { kind: "phase", ids: PHASE_IDS }, thisRun, x, y, w, phaseH, "stack");
+    drawDiscoveryGroup(ctx, view, { kind: "act", ids: ACT_IDS }, thisRun, x, y + phaseH, w, h - phaseH, "stack");
   }
 
   ctx.restore();
@@ -306,8 +305,12 @@ function drawDiscoveryGroup(
   y: number,
   w: number,
   h: number,
+  flow: "stack" | "row",
 ): void {
-  if (h < 36) return;
+  if (h < 32) return;
+  ctx.save();
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.globalAlpha = 0.34;
   ctx.font = font(600, view.compact ? 10 : 11);
@@ -316,22 +319,51 @@ function drawDiscoveryGroup(
   ctx.font = font(500, view.compact ? 10 : 11);
   ctx.fillText(KIND_HINT[group.kind], x, y + (view.compact ? 12 : 14));
 
-  const start = y + (view.compact ? 28 : 32);
-  const rowH = Math.min(view.compact ? 16 : 20, Math.max(14, (h - (view.compact ? 32 : 38)) / Math.max(1, group.ids.length)));
+  if (flow === "row") {
+    const start = y + (view.compact ? 28 : 34);
+    const colW = w / Math.max(1, group.ids.length);
+    group.ids.forEach((id, i) => {
+      const cx = x + i * colW;
+      drawDiscoveryLine(ctx, view, id, thisRun, cx, start, colW - 12, true);
+    });
+    ctx.restore();
+    return;
+  }
 
+  const start = y + (view.compact ? 28 : 32);
+  const rowH = Math.min(view.compact ? 16 : 22, Math.max(14, (h - (view.compact ? 32 : 38)) / Math.max(1, group.ids.length)));
   group.ids.forEach((id, i) => {
     const ry = start + i * rowH;
     if (ry > y + h - 6) return;
-    const known = view.found.has(id);
-    const fresh = thisRun.has(id);
-    ctx.globalAlpha = known ? (fresh ? 0.9 : 0.7) : 0.2;
-    ctx.font = font(known ? 600 : 500, view.compact ? 11 : 13);
-    const label = known ? DISCOVERY_LABEL[id] : "·";
-    ctx.fillText(label, x, ry);
-    ctx.globalAlpha = known ? 0.42 : 0.16;
-    ctx.font = font(500, view.compact ? 10 : 12);
-    const blurb = known ? DISCOVERY_BLURB[id] : "not yet";
-    const blurbX = x + (view.compact ? 92 : 118);
-    ctx.fillText(clipBlurb(ctx, blurb, x + w - blurbX), blurbX, ry);
+    drawDiscoveryLine(ctx, view, id, thisRun, x, ry, w, false);
   });
+  ctx.restore();
+}
+
+function drawDiscoveryLine(
+  ctx: CanvasRenderingContext2D,
+  view: DeadView,
+  id: DiscoveryId,
+  thisRun: Set<DiscoveryId>,
+  x: number,
+  y: number,
+  w: number,
+  stacked: boolean,
+): void {
+  const known = view.found.has(id);
+  const fresh = thisRun.has(id);
+  ctx.textAlign = "left";
+  ctx.globalAlpha = known ? (fresh ? 0.9 : 0.7) : 0.2;
+  ctx.font = font(known ? 600 : 500, view.compact ? 11 : 13);
+  const label = known ? DISCOVERY_LABEL[id] : "·";
+  ctx.fillText(label, x, y);
+  ctx.globalAlpha = known ? 0.42 : 0.16;
+  ctx.font = font(500, view.compact ? 10 : 12);
+  const blurb = known ? DISCOVERY_BLURB[id] : "not yet";
+  if (stacked) {
+    ctx.fillText(clipBlurb(ctx, blurb, w), x, y + (view.compact ? 14 : 16));
+    return;
+  }
+  const blurbX = x + (view.compact ? 92 : 118);
+  ctx.fillText(clipBlurb(ctx, blurb, x + w - blurbX), blurbX, y);
 }
