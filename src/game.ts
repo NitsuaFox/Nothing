@@ -917,15 +917,16 @@ export class Game {
   private loseLife(reason: "miss" | "void"): void {
     const before = this.hearts;
     this.hearts = Math.max(0, this.hearts - 1);
-    log("life", { reason, before, hearts: this.hearts, depth: this.depth, lethal: this.depth >= 2 });
+    const lethal = this.hearts <= 0;
+    log("life", { reason, before, hearts: this.hearts, depth: this.depth, lethal, banging: this.banging });
     if (this.mode !== "play" || this.banging) return;
-    if (this.depth >= 2 && this.hearts <= 0) this.die(reason);
+    if (lethal) this.die(reason);
   }
 
   private checkEntropyDeath(): void {
     if (this.mode !== "play" || this.banging) return;
-    if (this.depth < 2) return;
     if (this.mass > 0) return;
+    log("entropy death", { depth: this.depth, mass: this.mass, hearts: this.hearts });
     this.die("entropy");
   }
 
