@@ -83,12 +83,16 @@ void bootWavedash({
     board: platform.board.length,
     myRank: platform.myRank,
   });
+  if (new URLSearchParams(window.location.search).get("preview") === "dead") {
+    log("debug preview dead from query");
+    game.previewDead("void");
+  }
 });
 
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothing = game;
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothingPlatform = platform;
 log("boot", {
-  debug: "window.nothing (Game, endRun, debugState) · window.nothingPlatform",
+  debug: "window.nothing (Game, endRun, previewDead, debugState) · window.nothingPlatform · ?preview=dead",
   touch: "ontouchstart" in window,
   coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
 });

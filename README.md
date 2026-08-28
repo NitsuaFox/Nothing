@@ -69,7 +69,7 @@ Deeper floors get meaner. No shop, no pick — just a word:
 - Depth 4 **TIGHT** — a smaller kiss
 - Depth 5+ **DEEPER** — those stack, and bangs need more mass
 
-Death screens the score, peak combo, your name, rank, and a row of discoveries (found words vs dots). Tap to return to the waiting point. Best score and best depth stay in this browser and sync to Wavedash cloud saves when the SDK is present. Scores go to `high-scores` (plus `depth` and `combo`).
+Death screens the score with a label, how you died, depth, peak combo, people one rank above and two below your score, and discoveries split into **phases of the orb** (SPARK → A UNIVERSE) and **what you did** (SILENCE, VOID, RESONANCE), each with a short line of what that word means. Tap to return to the waiting point. Best score and best depth stay in this browser and sync to Wavedash cloud saves when the SDK is present. Scores go to `high-scores` (plus `depth` and `combo`).
 
 ## How it feels
 

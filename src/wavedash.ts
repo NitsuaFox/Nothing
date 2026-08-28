@@ -15,6 +15,7 @@ import {
   WAVEDASH_GAME_ID,
 } from "./wavedash-catalog";
 import { earnedAchievements, logAchievementCheck, type AchievementSnap } from "./achievements";
+import { aroundLimit, aroundOffset, NEAR_DOWN, NEAR_UP } from "./leaderboard";
 import {
   commitUnlock,
   createUnlockQueue,
@@ -57,8 +58,10 @@ export type PlatformState = {
   userId: string;
   username: string;
   board: BoardRow[];
+  around: BoardRow[];
   myRank: number | null;
   myScore: number | null;
+  submittedRank: number | null;
   lastUnlock: string;
   friends: number;
 };
@@ -90,6 +93,12 @@ type Host = {
     metadata?: Meta,
   ) => Promise<Ok<{ globalRank?: number; submittedRank?: number; score?: number }>>;
   listLeaderboardEntries: (id: string, offset: number, limit: number, friendsOnly?: boolean) => Promise<Ok<unknown>>;
+  listLeaderboardEntriesAroundUser?: (
+    id: string,
+    countAhead: number,
+    countBehind: number,
+    friendsOnly?: boolean,
+  ) => Promise<Ok<unknown>>;
   getMyLeaderboardEntries?: (id: string) => Promise<Ok<unknown>>;
   requestStats?: () => Promise<Ok<boolean> | boolean>;
   getStat?: (id: string) => number;
@@ -117,8 +126,10 @@ export const platform: PlatformState = {
   userId: "",
   username: "",
   board: [],
+  around: [],
   myRank: null,
   myScore: null,
+  submittedRank: null,
   lastUnlock: "",
   friends: 0,
 };
@@ -238,6 +249,55 @@ async function refreshScoreBoard(): Promise<void> {
     });
   } catch (error) {
     log("wavedash board fetch failed", { error: String(error) });
+  }
+}
+
+function mergeAround(rows: BoardRow[]): void {
+  const byId = new Map<string, BoardRow>();
+  for (const row of [...platform.around, ...rows]) {
+    const key = row.userId || `${row.name}:${row.rank}`;
+    const prev = byId.get(key);
+    if (!prev || row.score > prev.score) byId.set(key, row);
+  }
+  platform.around = [...byId.values()].sort((a, b) => a.rank - b.rank || b.score - a.score);
+}
+
+async function refreshAround(rank: number | null): Promise<void> {
+  if (!host) return;
+  const id = await ensureBoard(BOARDS.score);
+  if (!id) return;
+  try {
+    if (host.listLeaderboardEntriesAroundUser) {
+      const res = await host.listLeaderboardEntriesAroundUser(id, NEAR_UP, NEAR_DOWN, false);
+      const rows = asEntries(unwrap(res, [])).map(rowFrom);
+      mergeAround(rows);
+      log("wavedash around user", {
+        ahead: NEAR_UP,
+        behind: NEAR_DOWN,
+        names: rows.map((row) => `${row.rank}:${row.name}:${row.score}`),
+      });
+    }
+  } catch (error) {
+    log("wavedash around-user failed", { error: String(error) });
+  }
+
+  const target = rank && rank > 0 ? rank : platform.submittedRank ?? platform.myRank;
+  if (!target || target <= 0) return;
+  try {
+    const offset = aroundOffset(target);
+    const limit = aroundLimit();
+    const res = await host.listLeaderboardEntries(id, offset, limit, false);
+    const rows = asEntries(unwrap(res, [])).map(rowFrom);
+    mergeAround(rows);
+    log("wavedash around rank", {
+      rank: target,
+      offset,
+      limit,
+      names: rows.map((row) => `${row.rank}:${row.name}:${row.score}`),
+      around: platform.around.map((row) => `${row.rank}:${row.name}`),
+    });
+  } catch (error) {
+    log("wavedash around-rank failed", { error: String(error) });
   }
 }
 
@@ -448,6 +508,7 @@ export function onRunOver(run: {
   flushStats();
   setPresence("VOID", String(run.score));
   persistProgress();
+  platform.submittedRank = null;
   void submitRun(run);
 }
 
@@ -473,15 +534,25 @@ async function submitRun(run: { score: number; depth: number; combo: number; fou
         submittedRank: data && typeof data === "object" ? (data as { submittedRank?: number }).submittedRank : null,
       });
       if (job.name === BOARDS.score && data && typeof data === "object") {
-        const rank = Number((data as { globalRank?: number }).globalRank);
-        if (Number.isFinite(rank) && rank > 0) platform.myRank = rank;
+        const box = data as { globalRank?: number; submittedRank?: number };
+        const standing = Number(box.globalRank);
+        const submitted = Number(box.submittedRank);
+        if (Number.isFinite(standing) && standing > 0) platform.myRank = standing;
+        if (Number.isFinite(submitted) && submitted > 0) platform.submittedRank = submitted;
+        else if (Number.isFinite(standing) && standing > 0) platform.submittedRank = standing;
         platform.myScore = run.score;
+        log("wavedash score standing", {
+          score: run.score,
+          myRank: platform.myRank,
+          submittedRank: platform.submittedRank,
+        });
       }
     } catch (error) {
       log("wavedash score failed", { board: job.name, error: String(error) });
     }
   }
   await refreshScoreBoard();
+  await refreshAround(platform.submittedRank ?? platform.myRank);
 }
 
 export async function bootWavedash(next: PlatformHooks): Promise<void> {
@@ -539,6 +610,7 @@ export async function bootWavedash(next: PlatformHooks): Promise<void> {
   await ensureBoard(BOARDS.depth);
   await ensureBoard(BOARDS.combo);
   await refreshScoreBoard();
+  await refreshAround(platform.myRank);
 
   const local = hooks.snapshot?.();
   if (local && platform.hosted) await pullCloud(local);

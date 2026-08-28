@@ -32,6 +32,34 @@ export const DISCOVERY_LABEL: Record<DiscoveryId, string> = {
   resonance: "RESONANCE",
 };
 
+export type DiscoveryKind = "phase" | "act";
+
+/** Spark → bang is the orb growing. The rest are things you did. */
+export const DISCOVERY_KIND: Record<DiscoveryId, DiscoveryKind> = {
+  spark: "phase",
+  star: "phase",
+  giant: "phase",
+  singularity: "phase",
+  universe: "phase",
+  silence: "act",
+  voidtaken: "act",
+  resonance: "act",
+};
+
+export const DISCOVERY_BLURB: Record<DiscoveryId, string> = {
+  spark: "first matter in the orb",
+  star: "enough mass to hold a star",
+  giant: "the orb grown huge",
+  singularity: "collapse into a point",
+  universe: "filled until it bangs",
+  silence: "you let a void pulse pass",
+  voidtaken: "you tapped a void pulse",
+  resonance: "perfects found a chord",
+};
+
+export const PHASE_IDS: DiscoveryId[] = DISCOVERY_ORDER.filter((id) => DISCOVERY_KIND[id] === "phase");
+export const ACT_IDS: DiscoveryId[] = DISCOVERY_ORDER.filter((id) => DISCOVERY_KIND[id] === "act");
+
 const FOUND_KEY = "nothing:found";
 const HISCORE_KEY = "nothing:hiscore";
 const HIDEPTH_KEY = "nothing:hidepth";
