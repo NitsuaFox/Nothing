@@ -58,7 +58,7 @@ Each universe is a floor. Fill the mass bar until it bangs. Combo and streak **c
 
 Combo multiplies every hit. A perfect streak adds a clean extra multiplier: **×1.5** at 4, **×2** at 8, **×3** at 12. Depth multiplies on top.
 
-You have **three lives**, shown as dots. A miss (or letting a create pulse die) costs one. Tapping a **VOID** pulse costs one. Letting a void pass is **SILENCE** — that is free, and it pays. The first universe cannot kill you. From depth 2, the last pip ends the run. Entropy still eats idle mass.
+You have **three lives**, shown as dots. A miss (or letting a create pulse die) costs one. Tapping a **VOID** pulse costs one. Letting a void pass is **SILENCE** — that is free, and it pays. The last pip ends the run on every depth, including the first universe. Entropy still eats idle mass, and an empty bar is death.
 
 Deeper floors get meaner. No shop, no pick — just a word:
 
