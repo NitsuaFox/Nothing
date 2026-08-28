@@ -195,6 +195,8 @@ export type HudLayout = {
   mode: HudMode;
   portrait: boolean;
   scale: number;
+  viewW: number;
+  viewH: number;
   frameX: number;
   frameY: number;
   frameW: number;
@@ -327,7 +329,7 @@ export function layoutHud(viewW: number, viewH: number, safe: SafeArea, opts: Hu
   const x = (dx: number) => frame.x + dx * s;
   const y = (dy: number) => frame.y + dy * s;
   const coarse = opts.coarse === true;
-  const muteMin = coarse ? 48 : 32;
+  const muteMin = coarse ? 48 : 36;
   const muteSize = Math.max(spec.muteSize * s, muteMin);
   const muteRight = x(spec.w - spec.muteInset);
   const muteTop = y(spec.muteInset);
@@ -351,6 +353,8 @@ export function layoutHud(viewW: number, viewH: number, safe: SafeArea, opts: Hu
     mode,
     portrait,
     scale: s,
+    viewW,
+    viewH,
     frameX: frame.x,
     frameY: frame.y,
     frameW: frame.w,
@@ -433,6 +437,7 @@ export function hudSnapshot(hud: HudLayout): Record<string, unknown> {
   return {
     mode: hud.mode,
     scale: Number(hud.scale.toFixed(3)),
+    view: { w: round(hud.viewW), h: round(hud.viewH) },
     frame: {
       x: round(hud.frameX),
       y: round(hud.frameY),
@@ -470,17 +475,30 @@ export function hudDebugEnabled(): boolean {
 export function drawHudDebug(ctx: CanvasRenderingContext2D, hud: HudLayout): void {
   if (!hudDebugEnabled()) return;
   ctx.save();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(hud.frameX + 0.5, hud.frameY + 0.5, hud.frameW - 1, hud.frameH - 1);
-  ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillStyle = "rgba(255,255,255,0.45)";
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(hud.frameX + 1, hud.frameY + 1, hud.frameW - 2, hud.frameH - 2);
+  ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
+  const locked = hud.mode === "portrait" ? "9:16" : "16:9";
   ctx.fillText(
-    `HUD ${hud.mode} ${hud.mode === "portrait" ? "9:16" : "16:9"} ×${hud.scale.toFixed(2)}`,
+    `HUD ${hud.mode} ${locked}  ${round(hud.viewW)}×${round(hud.viewH)}  ×${hud.scale.toFixed(2)}`,
     hud.frameX + 8,
     hud.frameY + 8,
   );
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  const marks: [number, number][] = [
+    [hud.scoreX, hud.scoreY],
+    [hud.comboX, hud.comboY],
+    [hud.massX + hud.massW / 2, hud.massY + hud.massH / 2],
+    [hud.muteX + hud.muteSize / 2, hud.muteY + hud.muteSize / 2],
+  ];
+  for (const [mx, my] of marks) {
+    ctx.beginPath();
+    ctx.arc(mx, my, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }

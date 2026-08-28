@@ -180,6 +180,7 @@ export class Game {
   hud: HudLayout = layoutHud(1, 1, EMPTY_SAFE);
   platToast = "";
   platToastLife = 0;
+  hudDemo = false;
 
   constructor() {
     resetSplashLog();
@@ -241,7 +242,12 @@ export class Game {
     const muteVisible = this.mode !== "splash";
     if (muteVisible && x >= mute.x && x <= mute.x + mute.s && y >= mute.y && y <= mute.y + mute.s) {
       this.toggleMute();
-      log("mute tap", { muted: this.muted, mode: this.mode });
+      log("mute tap", { muted: this.muted, mode: this.mode, hud: this.hud.mode, scale: Number(this.hud.scale.toFixed(3)) });
+      return;
+    }
+
+    if (this.hudDemo) {
+      log("hud demo tap ignored", { x: Math.round(x), y: Math.round(y) });
       return;
     }
 
@@ -400,6 +406,12 @@ export class Game {
     this.hearts = 2;
     this.whisper = "TIGHT";
     this.whisperLife = 8;
+    this.hudDemo = true;
+    this.cycleArmed = false;
+    this.cycleStart = Number.POSITIVE_INFINITY;
+    this.entropyActive = false;
+    this.timeSinceTap = 0;
+    this.banging = false;
     log("hud debug show", {
       dump: "copy(window.nothing.hud)",
       score: this.score,
@@ -445,6 +457,15 @@ export class Game {
     this.particles.update(dt, this.cx, this.cy);
     if (this.mode === "menu") {
       this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.hud);
+    }
+
+    if (this.hudDemo) {
+      this.hudAlpha = 1;
+      this.whisperLife = Math.max(this.whisperLife, 1);
+      this.timeSinceTap = 0;
+      this.entropyActive = false;
+      this.cycleArmed = false;
+      return;
     }
 
     if (this.mode === "dead" || this.mode === "splash" || this.mode === "menu") return;
