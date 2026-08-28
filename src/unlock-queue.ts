@@ -1,7 +1,7 @@
 import { log } from "./debug";
 
 /** Pause after the first unlock is queued so the kiss / whisper can land first. */
-export const UNLOCK_LEAD_SEC = 2.2;
+export const UNLOCK_LEAD_SEC = 1.0;
 /** Minimum time between achievement pops (Wavedash overlay + in-game toast). */
 export const UNLOCK_GAP_SEC = 5.0;
 
@@ -16,10 +16,7 @@ export function createUnlockQueue(): UnlockQueue {
 }
 
 export function enqueueUnlock(queue: UnlockQueue, id: string): boolean {
-  if (queue.pending.includes(id)) {
-    log("unlock already queued", { id, waiting: queue.pending.length });
-    return false;
-  }
+  if (queue.pending.includes(id)) return false;
   queue.pending.push(id);
   if (queue.fired === 0 && queue.pending.length === 1 && queue.cooldown <= 0) {
     queue.cooldown = UNLOCK_LEAD_SEC;

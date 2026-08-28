@@ -9,13 +9,12 @@ import {
 // the host injected `window.Wavedash` (`wavedash dev` or wavedash.com).
 import {
   ACHIEVEMENT_TITLE,
-  ACHIEVEMENTS,
   BOARDS,
   CLOUD_SAVE_PATH,
-  DISCOVERY_ACHIEVEMENT,
   STATS,
   WAVEDASH_GAME_ID,
 } from "./wavedash-catalog";
+import { earnedAchievements, logAchievementCheck, type AchievementSnap } from "./achievements";
 import {
   commitUnlock,
   createUnlockQueue,
@@ -128,7 +127,6 @@ let host: Host | null = null;
 let hooks: PlatformHooks = {};
 let boardIds: Partial<Record<string, string>> = {};
 const friendIds = new Set<string>();
-let firstLight = false;
 let presenceKey = "";
 let saveTimer = 0;
 const unlocks = createUnlockQueue();
@@ -263,13 +261,14 @@ function flushStats(): void {
   }
 }
 
-export function unlockAchievement(id: string): void {
-  if (!host) return;
+export function unlockAchievement(id: string): boolean {
+  if (!host) return false;
   try {
-    if (host.getAchievement?.(id)) return;
-    enqueueUnlock(unlocks, id);
+    if (host.getAchievement?.(id)) return false;
+    return enqueueUnlock(unlocks, id);
   } catch (error) {
     log("wavedash unlock failed", { id, error: String(error) });
+    return false;
   }
 }
 
@@ -393,10 +392,6 @@ export function hostMuteState(): boolean | null {
 
 export function onKiss(kind: "perfect" | "good" | "miss"): void {
   if (kind === "perfect") bumpStat(STATS.perfects, 1);
-  if (!firstLight) {
-    firstLight = true;
-    unlockAchievement(ACHIEVEMENTS.firstLight);
-  }
   flushStats();
 }
 
@@ -405,37 +400,37 @@ export function onSilence(): void {
   flushStats();
 }
 
-export function onDiscovery(id: DiscoveryId, foundCount: number): void {
-  unlockAchievement(DISCOVERY_ACHIEVEMENT[id]);
+export function onDiscovery(_id: DiscoveryId, foundCount: number): void {
   maxStat(STATS.discoveries, foundCount);
-  if (foundCount >= 8) unlockAchievement(ACHIEVEMENTS.catalog);
   flushStats();
   persistProgress();
 }
 
 export function onBang(universes: number): void {
-  unlockAchievement(ACHIEVEMENTS.universe);
   maxStat(STATS.universes, universes);
   flushStats();
 }
 
 export function onDescend(depth: number, combo: number): void {
-  if (depth >= 2) unlockAchievement(ACHIEVEMENTS.deeper);
-  if (depth >= 5) unlockAchievement(ACHIEVEMENTS.depth5);
   maxStat(STATS.bestDepth, depth);
   setPresence(`DEPTH ${depth}`, combo > 0 ? `combo ${combo}` : "");
   flushStats();
 }
 
-export function onStreak(mul: number): void {
-  if (mul >= 2) unlockAchievement(ACHIEVEMENTS.streakX2);
-  if (mul >= 3) unlockAchievement(ACHIEVEMENTS.streakX3);
+export function onStreak(_mul: number): void {
   flushStats();
 }
 
 export function onCombo(combo: number): void {
   maxStat(STATS.bestCombo, combo);
-  if (combo >= 25) unlockAchievement(ACHIEVEMENTS.combo25);
+}
+
+/** Unlock any goals this snapshot newly qualifies for. Safe to call often. */
+export function syncAchievements(snap: AchievementSnap): void {
+  const earned = earnedAchievements(snap);
+  const fresh = earned.filter((id) => unlockAchievement(id));
+  if (fresh.length === 0) return;
+  logAchievementCheck(snap, fresh);
 }
 
 export function onRunOver(run: {
@@ -450,9 +445,6 @@ export function onRunOver(run: {
   maxStat(STATS.bestDepth, run.depth);
   maxStat(STATS.bestCombo, run.combo);
   maxStat(STATS.discoveries, run.found);
-  if ((host?.getStat?.(STATS.runs) ?? 0) >= 10) unlockAchievement(ACHIEVEMENTS.runs10);
-  if (run.score >= 1000) unlockAchievement(ACHIEVEMENTS.score1k);
-  if (run.score >= 10000) unlockAchievement(ACHIEVEMENTS.score10k);
   flushStats();
   setPresence("VOID", String(run.score));
   persistProgress();
