@@ -15,7 +15,6 @@ import {
 import { Particles } from "./particles";
 import {
   DISCOVERY_LABEL,
-  DISCOVERY_ORDER,
   loadFound,
   loadHidepth,
   loadHiscore,
@@ -45,6 +44,7 @@ import {
 } from "./title";
 import type { Mode, Phase, PulseKind, SplashPhase } from "./types";
 import { font, strokeText } from "./ui";
+import { drawDeadScreen } from "./dead";
 import {
   hostMuteState,
   onBang,
@@ -964,8 +964,11 @@ export class Game {
       peakCombo: this.peakCombo,
       hearts: this.hearts,
       found: this.found.size,
+      thisRun: [...this.discoveredThisRun],
       best: this.best,
       newBest: this.newBest,
+      submittedRank: platform.submittedRank,
+      around: platform.around.map((row) => `${row.rank}:${row.name}`),
     });
   }
 
@@ -1162,71 +1165,29 @@ export class Game {
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
     const hud = this.hudLayout();
-    const scoreSize = hud.compact ? Math.round(48 * hud.ui) : 72;
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
-    ctx.font = font(700, scoreSize);
-    strokeText(ctx, String(this.score), this.cx, this.cy - (hud.compact ? 90 : 64), 10);
-    ctx.font = font(600, hud.compact ? 14 : 18);
-    ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + (hud.compact ? -28 : 8));
-    ctx.globalAlpha = 0.45;
-    ctx.font = font(500, hud.compact ? 13 : 16);
-    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + (hud.compact ? -8 : 40));
-    if (platform.username || platform.myRank) {
-      const who = platform.username || "";
-      const rank = platform.myRank ? `#${platform.myRank}` : "";
-      const ident = [who, rank].filter(Boolean).join("   ·   ");
-      ctx.fillText(ident, this.cx, this.cy + (hud.compact ? 10 : 62));
-    }
-
-    this.drawDiscoveries(ctx, this.cy + (hud.compact ? 36 : 96));
-    if (hud.compact || this.w < 900) {
-      this.drawBoard(ctx, {
-        x: this.cx,
-        y: this.cy + (hud.compact ? 92 : 142),
-        align: "center",
-        alpha: 0.55,
-        limit: hud.compact ? 4 : 6,
-        rowH: hud.compact ? 16 : 18,
-      });
-    } else {
-      this.drawBoard(ctx, {
-        x: this.w - this.safe.right - hud.pad,
-        y: this.cy - 70,
-        align: "right",
-        alpha: 0.62,
-        limit: 8,
-        rowH: 20,
-      });
-    }
-
-    ctx.globalAlpha = 0.4;
-    ctx.textAlign = "center";
-    ctx.font = font(500, 16);
-    ctx.fillText("TAP", this.cx, hud.tapY);
-    ctx.restore();
-  }
-
-  private drawDiscoveries(ctx: CanvasRenderingContext2D, y: number): void {
-    const hud = this.hudLayout();
-    const cols = hud.compact || this.w < 720 ? 4 : 8;
-    const rows = Math.ceil(DISCOVERY_ORDER.length / cols);
-    const gapX = cols === 8 ? Math.min(92, (this.w - 80) / Math.max(1, cols - 1)) : Math.min(84, (this.w - 48) / cols);
-    const gapY = 18;
-    ctx.font = font(500, hud.compact ? 11 : 13);
-    for (let row = 0; row < rows; row++) {
-      const slice = DISCOVERY_ORDER.slice(row * cols, row * cols + cols);
-      const rowW = gapX * (slice.length - 1);
-      const x0 = this.cx - rowW / 2;
-      slice.forEach((id, i) => {
-        const known = this.found.has(id);
-        ctx.globalAlpha = known ? 0.7 : 0.22;
-        ctx.fillText(known ? DISCOVERY_LABEL[id] : "·", x0 + i * gapX, y + row * gapY);
-      });
-    }
+    drawDeadScreen(ctx, {
+      w: this.w,
+      h: this.h,
+      cx: this.cx,
+      safe: this.safe,
+      compact: hud.compact,
+      ui: hud.ui,
+      pad: hud.pad,
+      tapY: hud.tapY,
+      score: this.score,
+      best: this.best,
+      newBest: this.newBest,
+      depth: this.depth,
+      peakCombo: this.peakCombo,
+      deathReason: this.deathReason,
+      username: platform.username,
+      userId: platform.userId,
+      submittedRank: platform.submittedRank,
+      board: platform.board,
+      around: platform.around,
+      found: this.found,
+      discoveredThisRun: this.discoveredThisRun,
+    });
   }
 
   private drawBoard(
