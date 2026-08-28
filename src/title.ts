@@ -1,4 +1,5 @@
 import { log } from "./debug";
+import type { HudLayout } from "./hud";
 import { clamp, easeInCubic, easeOutCubic } from "./math";
 import type { SplashPhase } from "./types";
 import { fillTracked, fitTrackedSize, font } from "./ui";
@@ -84,24 +85,25 @@ export function menuLook(): TitleLook {
   };
 }
 
-export function playPromptRect(cx: number, cy: number, minDim: number): { x: number; y: number; w: number; h: number } {
-  const w = Math.max(160, minDim * 0.28);
-  const h = Math.max(44, minDim * 0.08);
-  const playY = cy + minDim * 0.16;
-  return { x: cx - w / 2, y: playY - h / 2, w, h };
+export function playPromptRect(hud: HudLayout): { x: number; y: number; w: number; h: number } {
+  return {
+    x: hud.playX - hud.playHitW / 2,
+    y: hud.playY - hud.playHitH / 2,
+    w: hud.playHitW,
+    h: hud.playHitH,
+  };
 }
 
-export function hitPlayPrompt(px: number, py: number, cx: number, cy: number, minDim: number): boolean {
-  const r = playPromptRect(cx, cy, minDim);
+export function hitPlayPrompt(px: number, py: number, hud: HudLayout): boolean {
+  const r = playPromptRect(hud);
   return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
 }
 
 export function drawTitleCards(
   ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  cx: number,
-  cy: number,
+  hud: HudLayout,
+  worldCx: number,
+  worldCy: number,
   look: TitleLook,
 ): void {
   if (look.studioAlpha <= 0.01 && look.titleAlpha <= 0.01) return;
@@ -111,23 +113,21 @@ export function drawTitleCards(
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#fff";
 
-  const minDim = Math.min(w, h);
+  const maxW = hud.frameW;
 
   if (look.studioAlpha > 0.01) {
-    const maxSize = clamp(minDim * 0.05, 22, 42);
     ctx.globalAlpha = look.studioAlpha;
-    const { size, tracking } = fitTrackedSize(ctx, "WHATTODOGAMES", 500, maxSize, w * 0.86, 0.42);
+    const { size, tracking } = fitTrackedSize(ctx, "WHATTODOGAMES", 500, hud.studioSize, maxW * 0.86, 0.42);
     ctx.font = font(500, size);
-    fillTracked(ctx, "WHATTODOGAMES", cx, cy, tracking);
+    fillTracked(ctx, "WHATTODOGAMES", worldCx, worldCy, tracking);
   }
 
   if (look.titleAlpha > 0.01) {
     const label = "NOTHING";
-    const maxSize = clamp(minDim * 0.2, 72, 168);
     ctx.globalAlpha = look.titleAlpha;
-    const { size, tracking } = fitTrackedSize(ctx, label, 800, maxSize, w * 0.9, 0.22);
+    const { size, tracking } = fitTrackedSize(ctx, label, 800, hud.titleSize, maxW * 0.9, 0.22);
     ctx.font = font(800, size);
-    fillTracked(ctx, label, cx, cy, tracking);
+    fillTracked(ctx, label, worldCx, worldCy, tracking);
   }
 
   ctx.restore();
@@ -135,10 +135,7 @@ export function drawTitleCards(
 
 export function drawMainMenu(
   ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  cx: number,
-  cy: number,
+  hud: HudLayout,
   alpha: number,
   best: number,
   hoverPlay: boolean,
@@ -146,9 +143,7 @@ export function drawMainMenu(
 ): void {
   if (alpha <= 0.01) return;
 
-  const minDim = Math.min(w, h);
   const pulse = 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(wallTime * 2.05));
-  const playY = cy + minDim * 0.16;
 
   ctx.save();
   ctx.textAlign = "center";
@@ -156,13 +151,14 @@ export function drawMainMenu(
   ctx.fillStyle = "#fff";
 
   ctx.globalAlpha = alpha * (hoverPlay ? 0.92 : pulse * 0.55);
-  ctx.font = font(600, clamp(minDim * 0.028, 14, 20));
-  fillTracked(ctx, "PLAY", cx, playY, 10);
+  ctx.font = font(600, hud.playSize);
+  fillTracked(ctx, "PLAY", hud.playX, hud.playY, Math.max(6, 10 * hud.scale));
 
   if (best > 0) {
     ctx.globalAlpha = alpha * 0.32;
-    ctx.font = font(500, 13);
-    ctx.fillText(`best ${best}`, cx, Math.min(h - 36, playY + 42));
+    ctx.font = font(500, hud.bestSize);
+    const bestY = Math.min(hud.frameY + hud.frameH - hud.pad, hud.playY + hud.playSize * 2.1);
+    ctx.fillText(`best ${best}`, hud.playX, bestY);
   }
 
   ctx.restore();

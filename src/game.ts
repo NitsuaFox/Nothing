@@ -31,6 +31,14 @@ import {
 import { formatMul, scoreGain, streakJustHit, streakMul } from "./scoring";
 import { Sky } from "./sky";
 import {
+  EMPTY_SAFE,
+  drawHudDebug,
+  layoutHud,
+  logHudLayout,
+  type HudLayout,
+  type SafeArea,
+} from "./hud";
+import {
   SKIP_FADE,
   SPLASH_END,
   MENU_CLICK_LOCK,
@@ -64,12 +72,7 @@ import {
 const HUD_REVEAL_FADE = 0.85;
 const MAX_HEARTS = 3;
 
-export type SafeArea = {
-  top: number;
-  right: number;
-  bottom: number;
-  left: number;
-};
+export type { SafeArea };
 
 function loadBest(): number {
   return loadHiscore();
@@ -172,7 +175,8 @@ export class Game {
   windowGlow = 0;
 
   muted = false;
-  safe: SafeArea = { top: 0, right: 0, bottom: 0, left: 0 };
+  safe: SafeArea = { ...EMPTY_SAFE };
+  hud: HudLayout = layoutHud(1, 1, EMPTY_SAFE);
   platToast = "";
   platToastLife = 0;
 
@@ -194,61 +198,25 @@ export class Game {
     this.cx = w / 2;
     this.cy = h / 2;
     if (safe) this.safe = safe;
-    const hud = this.hudLayout();
+    const coarse =
+      typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    const prev = this.hud;
+    this.hud = layoutHud(w, h, this.safe, { coarse });
     log("resize", {
       w,
       h,
-      compact: hud.compact,
-      ui: Number(hud.ui.toFixed(2)),
-      safe: this.safe,
       remnants: this.sky.remnants.length,
       found: this.found.size,
-      score: { x: hud.scoreX, y: hud.scoreY, size: hud.scoreSize },
-      combo: { x: hud.comboX, y: hud.comboY, size: hud.comboSize },
-      mass: { x: hud.massX, y: hud.massY, w: hud.massW },
-      hearts: { x: hud.heartX, y: hud.heartY },
-      mute: { x: hud.muteX, y: hud.muteY, s: hud.muteSize },
     });
-  }
-
-  private hudLayout() {
-    const compact = this.w < 560 || this.h < 520;
-    const ui = clamp(Math.min(this.w, this.h) / 720, 0.72, 1.12);
-    const coarse =
-      typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-    const muteSize = coarse || compact ? 48 : 36;
-    const pad = Math.max(compact ? 16 : 24, Math.round(Math.min(this.w, this.h) * (compact ? 0.038 : 0.045)));
-    const muteX = this.w - this.safe.right - muteSize - 8;
-    const muteY = this.safe.top + 8;
-    const scoreSize = compact ? Math.round(28 * ui) : 44;
-    const comboSize = compact ? Math.round(32 * ui) : 48;
-    const massY = this.h - this.safe.bottom - (compact ? 16 : 22);
-    const comboY = compact ? massY - 18 - comboSize * 0.38 : this.h - this.safe.bottom - 56;
-    const massW = compact ? Math.min(Math.round(this.w * 0.34), 150) : Math.min(Math.round(this.w * 0.32), 360);
-    return {
-      compact,
-      ui,
-      pad,
-      muteX,
-      muteY,
-      muteSize,
-      scoreX: this.safe.left + pad,
-      scoreY: this.safe.top + pad + (compact ? 18 : 22),
-      bestY: this.safe.top + pad + (compact ? 44 : 58),
-      depthY: this.safe.top + pad + (compact ? 18 : 22),
-      whisperY: this.safe.top + pad + (compact ? 56 : 72),
-      comboX: this.safe.left + pad,
-      comboY,
-      comboSize,
-      scoreSize,
-      massW,
-      massX: this.cx - massW / 2,
-      massY,
-      massH: compact ? 5 : 6,
-      heartX: muteX - 18,
-      heartY: muteY + muteSize / 2,
-      tapY: this.h - this.safe.bottom - (compact ? 22 : 36),
-    };
+    logHudLayout("resize", w, h, this.safe, this.hud);
+    if (prev.mode !== this.hud.mode) {
+      log("hud mode switch", {
+        from: prev.mode,
+        to: this.hud.mode,
+        locked: this.hud.mode === "portrait" ? "9:16" : "16:9",
+        scale: Number(this.hud.scale.toFixed(3)),
+      });
+    }
   }
 
   private kissWindows(): { perfectGap: number; goodGap: number } {
@@ -263,7 +231,7 @@ export class Game {
   }
 
   muteRect(): { x: number; y: number; s: number } {
-    const hud = this.hudLayout();
+    const hud = this.hud;
     return { x: hud.muteX, y: hud.muteY, s: hud.muteSize };
   }
 
@@ -416,7 +384,7 @@ export class Game {
     this.pointerX = x;
     this.pointerY = y;
     if (this.mode === "menu" || this.mode === "splash") {
-      this.menuHoverPlay = hitPlayPrompt(x, y, this.cx, this.cy, Math.min(this.w, this.h));
+      this.menuHoverPlay = hitPlayPrompt(x, y, this.hud);
     }
   }
 
@@ -442,7 +410,7 @@ export class Game {
 
     this.particles.update(dt, this.cx, this.cy);
     if (this.mode === "menu") {
-      this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.cx, this.cy, Math.min(this.w, this.h));
+      this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.hud);
     }
 
     if (this.mode === "dead" || this.mode === "splash" || this.mode === "menu") return;
@@ -531,11 +499,11 @@ export class Game {
     if (this.mode !== "splash") {
       this.juice.drawOverlays(ctx, this.w, this.h, cx + ox, cy + oy);
     }
-    drawTitleCards(ctx, this.w, this.h, cx, cy, this.intro);
+    drawTitleCards(ctx, this.hud, cx, cy, this.intro);
 
     const menuA = this.mode === "play" ? this.menuPromptAlpha : this.intro.menuAlpha * this.menuPromptAlpha;
     if (menuA > 0.01 && (this.mode === "splash" || this.mode === "menu" || this.mode === "play")) {
-      drawMainMenu(ctx, this.w, this.h, cx, cy, menuA, this.best, this.menuHoverPlay, this.wallTime);
+      drawMainMenu(ctx, this.hud, menuA, this.best, this.menuHoverPlay, this.wallTime);
     }
     if (this.mode === "menu") this.drawMenuIdentity(ctx, this.intro.menuAlpha);
 
@@ -543,6 +511,7 @@ export class Game {
     if (this.mode === "dead") this.drawDead(ctx);
     this.drawMute(ctx);
     this.drawHearts(ctx);
+    drawHudDebug(ctx, this.hud);
   }
 
   private cycleProgress(): number {
@@ -1021,7 +990,7 @@ export class Game {
   private enterMenu(why: string): void {
     this.mode = "menu";
     this.menuPromptAlpha = 1;
-    this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.cx, this.cy, Math.min(this.w, this.h));
+    this.menuHoverPlay = hitPlayPrompt(this.pointerX, this.pointerY, this.hud);
     log("menu", {
       why,
       skipped: this.skippedSplash,
@@ -1161,66 +1130,57 @@ export class Game {
   }
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
-    const hud = this.hudLayout();
-    const scoreSize = hud.compact ? Math.round(48 * hud.ui) : 72;
+    const hud = this.hud;
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
-    ctx.font = font(700, scoreSize);
-    strokeText(ctx, String(this.score), this.cx, this.cy - (hud.compact ? 90 : 64), 10);
-    ctx.font = font(600, hud.compact ? 14 : 18);
+    ctx.font = font(700, hud.deadScoreSize);
+    strokeText(ctx, String(this.score), this.cx, this.cy + hud.deadScoreDy, hud.strokeScore);
+    ctx.font = font(600, hud.deadLine2Size);
     ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + (hud.compact ? -28 : 8));
+    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + hud.deadLine2Y);
     ctx.globalAlpha = 0.45;
-    ctx.font = font(500, hud.compact ? 13 : 16);
-    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + (hud.compact ? -8 : 40));
+    ctx.font = font(500, hud.deadLine3Size);
+    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + hud.deadLine3Y);
     if (platform.username || platform.myRank) {
       const who = platform.username || "";
       const rank = platform.myRank ? `#${platform.myRank}` : "";
       const ident = [who, rank].filter(Boolean).join("   ·   ");
-      ctx.fillText(ident, this.cx, this.cy + (hud.compact ? 10 : 62));
+      ctx.fillText(ident, this.cx, this.cy + hud.deadIdentY);
     }
 
-    this.drawDiscoveries(ctx, this.cy + (hud.compact ? 36 : 96));
-    if (hud.compact || this.w < 900) {
-      this.drawBoard(ctx, {
-        x: this.cx,
-        y: this.cy + (hud.compact ? 92 : 142),
-        align: "center",
-        alpha: 0.55,
-        limit: hud.compact ? 4 : 6,
-        rowH: hud.compact ? 16 : 18,
-      });
-    } else {
-      this.drawBoard(ctx, {
-        x: this.w - this.safe.right - hud.pad,
-        y: this.cy - 70,
-        align: "right",
-        alpha: 0.62,
-        limit: 8,
-        rowH: 20,
-      });
-    }
+    this.drawDiscoveries(ctx, this.cy + hud.discoverY);
+    this.drawBoard(ctx, {
+      x: hud.boardX,
+      y: hud.boardY,
+      align: hud.boardAlign,
+      alpha: hud.portrait ? 0.55 : 0.62,
+      limit: hud.boardLimit,
+      rowH: hud.boardRowH,
+    });
 
     ctx.globalAlpha = 0.4;
     ctx.textAlign = "center";
-    ctx.font = font(500, 16);
+    ctx.font = font(500, hud.tapSize);
     ctx.fillText("TAP", this.cx, hud.tapY);
     ctx.restore();
   }
 
   private drawDiscoveries(ctx: CanvasRenderingContext2D, y: number): void {
-    const hud = this.hudLayout();
-    const cols = hud.compact || this.w < 720 ? 4 : 8;
+    const hud = this.hud;
+    const cols = hud.discoverCols;
     const rows = Math.ceil(DISCOVERY_ORDER.length / cols);
-    const gapX = cols === 8 ? Math.min(92, (this.w - 80) / Math.max(1, cols - 1)) : Math.min(84, (this.w - 48) / cols);
-    const gapY = 18;
-    ctx.font = font(500, hud.compact ? 11 : 13);
+    const gapX =
+      cols === 8
+        ? Math.min(92 * hud.scale, (hud.frameW - 80 * hud.scale) / Math.max(1, cols - 1))
+        : Math.min(84 * hud.scale, (hud.frameW - 48 * hud.scale) / cols);
+    const gapY = 18 * hud.scale;
+    ctx.font = font(500, hud.discoverSize);
     for (let row = 0; row < rows; row++) {
       const slice = DISCOVERY_ORDER.slice(row * cols, row * cols + cols);
       const rowW = gapX * (slice.length - 1);
-      const x0 = this.cx - rowW / 2;
+      const x0 = hud.cx - rowW / 2;
       slice.forEach((id, i) => {
         const known = this.found.has(id);
         ctx.globalAlpha = known ? 0.7 : 0.22;
@@ -1251,36 +1211,25 @@ export class Game {
 
   private drawMenuIdentity(ctx: CanvasRenderingContext2D, alpha: number): void {
     if (alpha <= 0.01) return;
-    const hud = this.hudLayout();
+    const hud = this.hud;
     ctx.save();
     ctx.fillStyle = "#fff";
     ctx.textBaseline = "middle";
     if (platform.username) {
       ctx.textAlign = "right";
       ctx.globalAlpha = alpha * 0.45;
-      ctx.font = font(500, 13);
-      ctx.fillText(platform.username, this.w - this.safe.right - hud.pad, hud.muteY + hud.muteSize + 18);
+      ctx.font = font(500, hud.menuNameSize);
+      ctx.fillText(platform.username, hud.menuNameX, hud.menuNameY);
     }
     if (platform.board.length > 0) {
-      if (hud.compact) {
-        this.drawBoard(ctx, {
-          x: this.cx,
-          y: this.h - this.safe.bottom - 88,
-          align: "center",
-          alpha: 0.28 * alpha,
-          limit: 3,
-          rowH: 16,
-        });
-      } else {
-        this.drawBoard(ctx, {
-          x: this.w - this.safe.right - hud.pad,
-          y: hud.muteY + hud.muteSize + 36,
-          align: "right",
-          alpha: 0.32 * alpha,
-          limit: 6,
-          rowH: 18,
-        });
-      }
+      this.drawBoard(ctx, {
+        x: hud.menuBoardX,
+        y: hud.menuBoardY,
+        align: hud.menuBoardAlign,
+        alpha: (hud.portrait ? 0.28 : 0.32) * alpha,
+        limit: hud.menuBoardLimit,
+        rowH: hud.menuBoardRowH,
+      });
     }
     ctx.restore();
   }
@@ -1288,7 +1237,7 @@ export class Game {
   private drawHud(ctx: CanvasRenderingContext2D): void {
     if (this.mode === "splash" || this.mode === "menu") return;
 
-    const hud = this.hudLayout();
+    const hud = this.hud;
     const chrome = this.hudAlpha;
     ctx.save();
     ctx.textBaseline = "middle";
@@ -1298,38 +1247,38 @@ export class Game {
       ctx.textAlign = "left";
       ctx.globalAlpha = 0.92 * chrome;
       ctx.font = font(800, hud.scoreSize);
-      strokeText(ctx, String(this.score), hud.scoreX, hud.scoreY, 8);
+      strokeText(ctx, String(this.score), hud.scoreX, hud.scoreY, hud.strokeScore);
       if (this.scorePop > 0.08 && this.lastGain > 0) {
         ctx.globalAlpha = clamp(this.scorePop, 0, 0.85) * chrome;
-        ctx.font = font(700, hud.compact ? 14 : 18);
+        ctx.font = font(700, hud.plusSize);
         ctx.fillText(`+${this.lastGain}`, hud.scoreX, hud.bestY);
       } else if (this.best > 0) {
         ctx.globalAlpha = 0.4 * chrome;
-        ctx.font = font(500, hud.compact ? 12 : 14);
+        ctx.font = font(500, hud.bestSize);
         ctx.fillText(`best ${this.best}`, hud.scoreX, hud.bestY);
       }
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "center";
       ctx.globalAlpha = 0.45 * chrome;
-      ctx.font = font(600, hud.compact ? 12 : 14);
-      ctx.fillText(`DEPTH ${this.depth}`, this.cx, hud.depthY);
+      ctx.font = font(600, hud.depthSize);
+      ctx.fillText(`DEPTH ${this.depth}`, hud.cx, hud.depthY);
       ctx.globalAlpha = 1;
     }
 
     if (this.whisperLife > 0 && this.whisper !== this.hitLabel && this.mode === "play" && this.hitLabelLife <= 0 && chrome > 0.01) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.whisperLife / 0.5, 0, 0.7) * chrome;
-      ctx.font = font(600, 16);
-      ctx.fillText(this.whisper, this.cx, hud.whisperY);
+      ctx.font = font(600, hud.whisperSize);
+      ctx.fillText(this.whisper, hud.cx, hud.whisperY);
       ctx.globalAlpha = 1;
     }
 
     if (!this.banging && this.hitLabelLife > 0 && this.mode === "play" && this.pulseIndex > 0) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.hitLabelLife / 0.4, 0, 1);
-      ctx.font = font(700, 22);
-      strokeText(ctx, this.hitLabel, this.cx, hud.whisperY, 6);
+      ctx.font = font(700, hud.hitLabelSize);
+      strokeText(ctx, this.hitLabel, hud.cx, hud.whisperY, hud.strokeHit);
       ctx.globalAlpha = 1;
     }
 
@@ -1344,12 +1293,12 @@ export class Game {
       ctx.globalAlpha = 0.95 * chrome;
       const comboText = String(this.combo);
       const comboW = ctx.measureText(comboText).width;
-      strokeText(ctx, comboText, 0, 0, 8);
+      strokeText(ctx, comboText, 0, 0, hud.strokeScore);
       const label = formatMul(mul);
       if (label) {
-        ctx.font = font(700, hud.compact ? 18 : 26);
+        ctx.font = font(700, hud.comboMulSize);
         ctx.globalAlpha = (0.75 + this.mulFlash * 0.25) * chrome;
-        ctx.fillText(label, comboW + 16, 1);
+        ctx.fillText(label, comboW + 16 * hud.scale, 1);
       }
       ctx.restore();
     }
@@ -1359,7 +1308,7 @@ export class Game {
       const t = clamp(this.mass / Math.max(0.001, need), 0, 1);
       ctx.globalAlpha = 0.2 * chrome;
       ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = Math.max(1, hud.scale);
       ctx.strokeRect(hud.massX, hud.massY, hud.massW, hud.massH);
       ctx.globalAlpha = 0.8 * chrome;
       ctx.fillStyle = "#fff";
@@ -1371,15 +1320,15 @@ export class Game {
       const fade = clamp((this.bangT - 0.75) / 0.25, 0, 1) * (this.bangT > 2.4 ? 1 - clamp((this.bangT - 2.4) / 0.6, 0, 1) : 1);
       ctx.globalAlpha = fade;
       ctx.textAlign = "center";
-      ctx.font = font(800, hud.compact ? Math.round(48 * hud.ui) : 72);
+      ctx.font = font(800, hud.bangScoreSize);
       ctx.fillStyle = "#fff";
-      strokeText(ctx, String(this.bangScore), this.cx, this.cy - 8, 10);
-      ctx.font = font(600, hud.compact ? 15 : 18);
-      ctx.fillText(this.bangHeadline, this.cx, this.cy + 40);
+      strokeText(ctx, String(this.bangScore), this.cx, this.cy + hud.bangScoreDy, hud.strokeScore);
+      ctx.font = font(600, hud.bangSubSize);
+      ctx.fillText(this.bangHeadline, this.cx, this.cy + hud.bangSubDy);
       if (this.bangT > 0.55) {
         ctx.globalAlpha = fade * 0.55;
-        ctx.font = font(500, hud.compact ? 13 : 16);
-        ctx.fillText("TAP  TO  GO  DEEPER", this.cx, this.cy + 70);
+        ctx.font = font(500, hud.bangHintSize);
+        ctx.fillText("TAP  TO  GO  DEEPER", this.cx, this.cy + hud.bangHintDy);
       }
       ctx.globalAlpha = 1;
     }
@@ -1387,8 +1336,8 @@ export class Game {
     if (this.platToastLife > 0 && this.platToast && this.mode === "play" && !this.banging) {
       ctx.textAlign = "center";
       ctx.globalAlpha = clamp(this.platToastLife / 0.5, 0, 0.55);
-      ctx.font = font(600, hud.compact ? 12 : 14);
-      ctx.fillText(this.platToast, this.cx, hud.whisperY + (hud.compact ? 22 : 28));
+      ctx.font = font(600, hud.toastSize);
+      ctx.fillText(this.platToast, hud.cx, hud.toastY);
       ctx.globalAlpha = 1;
     }
 
@@ -1397,20 +1346,20 @@ export class Game {
 
   private drawHearts(ctx: CanvasRenderingContext2D): void {
     if (this.mode !== "play" || !this.started || this.hudAlpha < 0.01) return;
-    const hud = this.hudLayout();
-    const gap = 16;
+    const hud = this.hud;
+    const gap = hud.heartGap;
     const chrome = this.hudAlpha;
     ctx.save();
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = Math.max(1, 1.4 * hud.scale);
     for (let i = 0; i < MAX_HEARTS; i++) {
       const x = hud.heartX - (MAX_HEARTS - 1 - i) * gap;
       const y = hud.heartY;
       const filled = i < this.hearts;
       ctx.globalAlpha = (filled ? (this.hearts === 1 ? 0.9 : 0.7) : 0.22) * chrome;
       ctx.beginPath();
-      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      ctx.arc(x, y, hud.heartR, 0, Math.PI * 2);
       if (filled) ctx.fill();
       else ctx.stroke();
     }
@@ -1428,7 +1377,7 @@ export class Game {
     ctx.globalAlpha = 0.42 * fade;
     ctx.strokeStyle = "#fff";
     ctx.fillStyle = "#fff";
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = Math.max(1, 1.4 * (s / 44));
     ctx.beginPath();
     ctx.moveTo(cx - 8 * u, cy);
     ctx.lineTo(cx - 3 * u, cy - 5 * u);
