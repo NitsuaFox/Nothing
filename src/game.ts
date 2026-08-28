@@ -1,8 +1,9 @@
+import { earnedAchievements } from "./achievements";
 import { AudioEngine, type TapKind } from "./audio";
 import { log } from "./debug";
 import { depthMods, depthWord, type DepthMods } from "./depth";
 import { Juice } from "./juice";
-import { clamp, lerp } from "./math";
+import { clamp, lerp, whiteToRed } from "./math";
 import {
   KISS,
   baseOrbRadius,
@@ -15,7 +16,6 @@ import {
 import { Particles } from "./particles";
 import {
   DISCOVERY_LABEL,
-  DISCOVERY_ORDER,
   loadFound,
   loadHidepth,
   loadHiscore,
@@ -54,6 +54,7 @@ import {
 } from "./title";
 import type { Mode, Phase, PulseKind, SplashPhase } from "./types";
 import { font, strokeText } from "./ui";
+import { drawDeadScreen } from "./dead";
 import {
   hostMuteState,
   onBang,
@@ -66,7 +67,9 @@ import {
   onStreak,
   persistProgress,
   platform,
+  pumpUnlocks,
   setPresence,
+  syncAchievements,
   toggleHostMute,
 } from "./wavedash";
 
@@ -108,6 +111,7 @@ export class Game {
   discoveredThisRun: DiscoveryId[] = [];
   perfectStreak = 0;
   silences = 0;
+  perfectsThisRun = 0;
   pulseIndex = 0;
   pulseKind: PulseKind = "create";
   whisper = "";
@@ -180,6 +184,8 @@ export class Game {
   hud: HudLayout = layoutHud(1, 1, EMPTY_SAFE);
   platToast = "";
   platToastLife = 0;
+  platToastId = "";
+  unlockToasts: { id: string; title: string }[] = [];
   hudDemo = false;
 
   constructor() {
@@ -360,9 +366,43 @@ export class Game {
   }
 
   toastUnlock(title: string, id: string): void {
+    if (this.platToastId === id && this.platToastLife > 0.1) {
+      log("unlock toast skipped — already showing", { id, title });
+      return;
+    }
+    if (this.unlockToasts.some((row) => row.id === id)) {
+      log("unlock toast skipped — already waiting", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    if (this.platToastLife > 0.25) {
+      this.unlockToasts.push({ id, title });
+      log("unlock toast queued", { id, title, waiting: this.unlockToasts.length });
+      return;
+    }
+    this.beginUnlockToast(id, title);
+  }
+
+  private pushAchievements(): void {
+    syncAchievements({
+      score: this.score,
+      combo: this.combo,
+      peakCombo: this.peakCombo,
+      depth: this.depth,
+      hearts: this.hearts,
+      perfects: this.perfectsThisRun,
+      silences: this.silences,
+      universes: this.universes,
+      perfectStreak: this.perfectStreak,
+      found: this.found.size,
+      runs: this.runsPlayed,
+    });
+  }
+
+  private beginUnlockToast(id: string, title: string): void {
+    this.platToastId = id;
     this.platToast = title;
-    this.platToastLife = 1.8;
-    log("unlock toast", { id, title });
+    this.platToastLife = 3.1;
+    log("unlock toast", { id, title, waiting: this.unlockToasts.length });
   }
 
   snapshot(): ProgressSnapshot {
@@ -426,6 +466,75 @@ export class Game {
     this.die(reason);
   }
 
+  /**
+   * Debug: skip the title and open the recap with a sample score + finds.
+   * `window.nothing.previewDead()` or `?preview=dead`
+   */
+  previewDead(reason = "void"): void {
+    this.skippedSplash = true;
+    this.skipFade = 1;
+    this.intro = menuLook();
+    this.splashT = SPLASH_END;
+    this.score = Math.max(this.score, 120);
+    this.depth = Math.max(this.depth, 2);
+    this.peakCombo = Math.max(this.peakCombo, 8);
+    const sample: DiscoveryId[] = ["spark", "star", "giant", "silence"];
+    for (const id of sample) {
+      this.found.add(id);
+      if (!this.discoveredThisRun.includes(id)) this.discoveredThisRun.push(id);
+    }
+    log("debug preview dead", {
+      reason,
+      score: this.score,
+      depth: this.depth,
+      peakCombo: this.peakCombo,
+      found: [...this.found],
+      thisRun: [...this.discoveredThisRun],
+      board: platform.board.map((row) => `${row.rank}:${row.name}:${row.score}`),
+    });
+    this.die(reason);
+  }
+
+  /** Debug dump for console paste-back. `window.nothing.debugState()` */
+  debugState(): Record<string, unknown> {
+    const progress = this.cycleProgress();
+    const snap = {
+      score: this.score,
+      combo: this.combo,
+      peakCombo: this.peakCombo,
+      depth: this.depth,
+      hearts: this.hearts,
+      perfects: this.perfectsThisRun,
+      silences: this.silences,
+      universes: this.universes,
+      perfectStreak: this.perfectStreak,
+      found: this.found.size,
+      runs: this.runsPlayed,
+    };
+    const dump = {
+      mode: this.mode,
+      phase: this.phase,
+      started: this.started,
+      cycleArmed: this.cycleArmed,
+      pulseKind: this.pulseKind,
+      pulseIndex: this.pulseIndex,
+      progress: Number(progress.toFixed(3)),
+      period: Number(this.period.toFixed(3)),
+      mass: Number(this.mass.toFixed(2)),
+      bangNeed: this.bangNeed(),
+      banging: this.banging,
+      platToast: this.platToast,
+      platToastLife: Number(this.platToastLife.toFixed(2)),
+      platToastId: this.platToastId,
+      waitingToasts: this.unlockToasts.map((row) => row.id),
+      earned: earnedAchievements(snap),
+      hud: hudSnapshot(this.hud),
+      snap,
+    };
+    log("debug state", dump);
+    return dump;
+  }
+
   movePointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
@@ -445,6 +554,11 @@ export class Game {
     this.hitLabelLife = Math.max(0, this.hitLabelLife - dt);
     this.whisperLife = Math.max(0, this.whisperLife - dt);
     this.platToastLife = Math.max(0, this.platToastLife - dt);
+    if (this.platToastLife <= 0 && this.unlockToasts.length > 0) {
+      const next = this.unlockToasts.shift();
+      if (next) this.beginUnlockToast(next.id, next.title);
+    }
+    pumpUnlocks(dt, this.banging || this.mode === "splash");
     this.sky.update(dt);
     this.scorePop = Math.max(0, this.scorePop - dt * 1.8);
     this.mulFlash = Math.max(0, this.mulFlash - dt * 1.15);
@@ -494,10 +608,16 @@ export class Game {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, this.w, this.h);
 
+    const hurt = this.juice.hurt;
+    if (hurt > 0.01) {
+      ctx.fillStyle = `rgba(150, 6, 12, ${hurt * 0.7})`;
+      ctx.fillRect(0, 0, this.w, this.h);
+    }
+
     if (this.intro.skyAlpha > 0.01) {
       ctx.save();
       ctx.globalAlpha = this.intro.skyAlpha;
-      this.sky.draw(ctx, this.w, this.h);
+      this.sky.draw(ctx, this.w, this.h, hurt);
       ctx.restore();
     }
 
@@ -513,15 +633,16 @@ export class Game {
       ctx.globalAlpha = this.intro.orbAlpha;
       ctx.translate(ox, oy);
 
-      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed) {
+      const showRing = this.started && !this.banging && this.mode === "play" && this.cycleArmed;
+      if (showRing) {
         ctx.beginPath();
         ctx.arc(cx, cy, this.orbRadius() + 1, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255,255,255,0.14)";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = whiteToRed(hurt, 0.14 + hurt * 0.7);
+        ctx.lineWidth = 1 + hurt * 2;
         ctx.stroke();
       }
 
-      if (this.started && !this.banging && this.mode === "play" && this.cycleArmed && this.gameTime >= this.cycleStart) {
+      if (showRing && this.gameTime >= this.cycleStart) {
         const p = this.cycleProgress();
         const maxR = pulseMaxRadius(this.orbRadius(), this.w, this.h);
         const ringR = pulseRadius(p, this.orbRadius(), maxR, KISS);
@@ -532,7 +653,16 @@ export class Game {
         const voidPulse = this.pulseKind === "void";
         this.windowGlow = voidPulse ? 0 : nearKiss ? clamp(1 - gap / windows.goodGap, 0, 1) : 0;
         const alpha = p > 0.97 ? 0 : p < 0.04 ? p / 0.04 : nearKiss && !voidPulse ? 1 : 0.7;
-        drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind);
+        drawPulseRing(ctx, cx, cy, ringR, alpha, nearKiss && !voidPulse, this.pulseKind, hurt);
+      }
+
+      if (hurt > 0.01 && this.mode === "play") {
+        const missR = Math.max(this.orbRadius() * 1.8, 22);
+        ctx.beginPath();
+        ctx.arc(cx, cy, missR, 0, Math.PI * 2);
+        ctx.strokeStyle = whiteToRed(hurt, 0.35 + hurt * 0.65);
+        ctx.lineWidth = 2.4 + hurt * 3.2;
+        ctx.stroke();
       }
 
       drawOrb(
@@ -545,9 +675,10 @@ export class Game {
         this.squashX,
         this.squashY,
         this.densify + this.windowGlow * 0.35 + clamp((this.combo - 8) / 28, 0, 0.4),
+        hurt,
       );
 
-      this.particles.draw(ctx);
+      this.particles.draw(ctx, hurt);
       ctx.restore();
     }
 
@@ -600,6 +731,7 @@ export class Game {
       this.combo += 1;
       this.peakCombo = Math.max(this.peakCombo, this.combo);
       this.perfectStreak += 1;
+      this.perfectsThisRun += 1;
       const add = (1 + Math.min(this.combo, 24) * 0.04) * mods.hitMassMul;
       this.mass += add;
       this.massCreated += add;
@@ -645,6 +777,13 @@ export class Game {
       this.particles.spawnBurst(this.cx, this.cy, 10, 90, r);
       this.lastGain = 0;
       onKiss("miss");
+      log("miss red flash", {
+        hearts: this.hearts,
+        mass: Number(this.mass.toFixed(2)),
+        depth: this.depth,
+        hurt: 1,
+        circleR: Number(Math.max(this.orbRadius() * 1.8, 22).toFixed(1)),
+      });
       this.loseLife("miss");
     }
 
@@ -652,6 +791,7 @@ export class Game {
     this.period = (this.phase === "giant" ? tempo * 1.16 : tempo) * mods.periodMul;
     this.juice.punch(kind);
     this.audio.tap(kind, this.combo);
+    this.pushAchievements();
 
     log(
       `tap kind=${kind} combo=${this.combo} pStreak=${this.perfectStreak} mul=${streakMul(this.perfectStreak)} gapPx=${gap.toFixed(1)} windowMs=${errorMs.toFixed(1)} mass=${this.mass.toFixed(2)} score=${this.score} depth=${this.depth} hearts=${this.hearts}`,
@@ -734,6 +874,7 @@ export class Game {
     this.grantScore(8 + mods.silenceCombo * 6, this.perfectStreak);
     this.discover("silence");
     onSilence();
+    this.pushAchievements();
     log("silence", {
       silences: this.silences,
       combo: this.combo,
@@ -771,6 +912,7 @@ export class Game {
     log("discovery", { id, label: DISCOVERY_LABEL[id], found: this.found.size });
     onDiscovery(id, this.found.size);
     persistProgress();
+    this.pushAchievements();
   }
 
   private setPhaseWhisper(phase: Phase): void {
@@ -833,6 +975,7 @@ export class Game {
     this.particles.spawnStars(this.cx, this.cy, 90);
     this.sky.collapse();
     onBang(this.universes);
+    this.pushAchievements();
     setPresence("BANG", `DEPTH ${this.depth}`);
     log("bang", {
       score: this.bangScore,
@@ -941,15 +1084,16 @@ export class Game {
   private loseLife(reason: "miss" | "void"): void {
     const before = this.hearts;
     this.hearts = Math.max(0, this.hearts - 1);
-    log("life", { reason, before, hearts: this.hearts, depth: this.depth, lethal: this.depth >= 2 });
+    const lethal = this.hearts <= 0;
+    log("life", { reason, before, hearts: this.hearts, depth: this.depth, lethal, banging: this.banging });
     if (this.mode !== "play" || this.banging) return;
-    if (this.depth >= 2 && this.hearts <= 0) this.die(reason);
+    if (lethal) this.die(reason);
   }
 
   private checkEntropyDeath(): void {
     if (this.mode !== "play" || this.banging) return;
-    if (this.depth < 2) return;
     if (this.mass > 0) return;
+    log("entropy death", { depth: this.depth, mass: this.mass, hearts: this.hearts });
     this.die("entropy");
   }
 
@@ -980,6 +1124,7 @@ export class Game {
       found: this.found.size,
       reason,
     });
+    this.pushAchievements();
     persistProgress();
     log("run over", {
       reason,
@@ -988,8 +1133,11 @@ export class Game {
       peakCombo: this.peakCombo,
       hearts: this.hearts,
       found: this.found.size,
+      thisRun: [...this.discoveredThisRun],
       best: this.best,
       newBest: this.newBest,
+      submittedRank: platform.submittedRank,
+      around: platform.around.map((row) => `${row.rank}:${row.name}`),
     });
   }
 
@@ -1000,6 +1148,7 @@ export class Game {
     this.score = 0;
     this.peakCombo = 0;
     this.silences = 0;
+    this.perfectsThisRun = 0;
     this.discoveredThisRun = [];
     this.universes = 0;
     this.deathReason = "";
@@ -1181,67 +1330,40 @@ export class Game {
     this.applyTap("perfect", 0, 0);
     this.beginNextCycle(0.45);
     onDescend(this.depth, this.combo);
+    this.pushAchievements();
     log("first light", { depth: this.depth, combo: this.combo, pStreak: this.perfectStreak, auto: true });
   }
 
   private drawDead(ctx: CanvasRenderingContext2D): void {
     const hud = this.hud;
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
-    ctx.font = font(700, hud.deadScoreSize);
-    strokeText(ctx, String(this.score), this.cx, this.cy + hud.deadScoreDy, hud.strokeScore);
-    ctx.font = font(600, hud.deadLine2Size);
-    ctx.globalAlpha = 0.85;
-    ctx.fillText(this.newBest ? "N E W  B E S T" : `DEPTH ${this.depth}`, this.cx, this.cy + hud.deadLine2Y);
-    ctx.globalAlpha = 0.45;
-    ctx.font = font(500, hud.deadLine3Size);
-    ctx.fillText(`BEST ${this.best}   ·   PEAK ${this.peakCombo}`, this.cx, this.cy + hud.deadLine3Y);
-    if (platform.username || platform.myRank) {
-      const who = platform.username || "";
-      const rank = platform.myRank ? `#${platform.myRank}` : "";
-      const ident = [who, rank].filter(Boolean).join("   ·   ");
-      ctx.fillText(ident, this.cx, this.cy + hud.deadIdentY);
-    }
-
-    this.drawDiscoveries(ctx, this.cy + hud.discoverY);
-    this.drawBoard(ctx, {
-      x: hud.boardX,
-      y: hud.boardY,
-      align: hud.boardAlign,
-      alpha: hud.portrait ? 0.55 : 0.62,
-      limit: hud.boardLimit,
-      rowH: hud.boardRowH,
+    drawDeadScreen(ctx, {
+      w: this.w,
+      h: this.h,
+      cx: hud.cx,
+      safe: {
+        top: hud.frameY,
+        right: Math.max(0, this.w - hud.frameX - hud.frameW),
+        bottom: Math.max(0, this.h - hud.frameY - hud.frameH),
+        left: hud.frameX,
+      },
+      compact: hud.portrait,
+      ui: hud.scale,
+      pad: hud.pad,
+      tapY: hud.tapY,
+      score: this.score,
+      best: this.best,
+      newBest: this.newBest,
+      depth: this.depth,
+      peakCombo: this.peakCombo,
+      deathReason: this.deathReason,
+      username: platform.username,
+      userId: platform.userId,
+      submittedRank: platform.submittedRank,
+      board: platform.board,
+      around: platform.around,
+      found: this.found,
+      discoveredThisRun: this.discoveredThisRun,
     });
-
-    ctx.globalAlpha = 0.4;
-    ctx.textAlign = "center";
-    ctx.font = font(500, hud.tapSize);
-    ctx.fillText("TAP", this.cx, hud.tapY);
-    ctx.restore();
-  }
-
-  private drawDiscoveries(ctx: CanvasRenderingContext2D, y: number): void {
-    const hud = this.hud;
-    const cols = hud.discoverCols;
-    const rows = Math.ceil(DISCOVERY_ORDER.length / cols);
-    const gapX =
-      cols === 8
-        ? Math.min(92 * hud.scale, (hud.frameW - 80 * hud.scale) / Math.max(1, cols - 1))
-        : Math.min(84 * hud.scale, (hud.frameW - 48 * hud.scale) / cols);
-    const gapY = 18 * hud.scale;
-    ctx.font = font(500, hud.discoverSize);
-    for (let row = 0; row < rows; row++) {
-      const slice = DISCOVERY_ORDER.slice(row * cols, row * cols + cols);
-      const rowW = gapX * (slice.length - 1);
-      const x0 = hud.cx - rowW / 2;
-      slice.forEach((id, i) => {
-        const known = this.found.has(id);
-        ctx.globalAlpha = known ? 0.7 : 0.22;
-        ctx.fillText(known ? DISCOVERY_LABEL[id] : "·", x0 + i * gapX, y + row * gapY);
-      });
-    }
   }
 
   private drawBoard(

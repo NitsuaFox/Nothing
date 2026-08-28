@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Creates stats + achievements on the Wavedash game from wavedash/catalog.json.
- * Requires the Wavedash CLI (`wavedash auth login`).
+ * Syncs stats + achievements on the Wavedash game from wavedash/catalog.json.
+ * Creates missing entries, updates titles/descriptions, deletes identifiers
+ * that are no longer in the catalog (the old first-10-seconds set).
  *
- * If the CLI is missing, prints how to import the JSON in the Developer Portal.
+ * Requires the Wavedash CLI (`wavedash auth login` or WAVEDASH_TOKEN).
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -28,6 +29,18 @@ function run(args) {
   return { status: result.status ?? 1, out };
 }
 
+function parseJson(out) {
+  const start = out.indexOf("[");
+  const startObj = out.indexOf("{");
+  const i = start === -1 ? startObj : startObj === -1 ? start : Math.min(start, startObj);
+  if (i < 0) return null;
+  try {
+    return JSON.parse(out.slice(i));
+  } catch {
+    return null;
+  }
+}
+
 const version = whichWavedash();
 if (!version) {
   console.log("[Nothing] wavedash CLI not found.");
@@ -47,25 +60,69 @@ for (const stat of catalog.stats) {
   console.log(`[Nothing] stat ${stat.identifier}`, { ok: status === 0 || skip, skip, out: out.slice(0, 200) });
 }
 
+const listed = run(["achievement", "list", "--json"]);
+const remote = Array.isArray(parseJson(listed.out)) ? parseJson(listed.out) : [];
+console.log("[Nothing] remote achievements", { count: remote.length });
+
+const byIdentifier = new Map();
+for (const row of remote) {
+  const identifier = row.identifier ?? row.Identifier;
+  if (identifier) byIdentifier.set(identifier, row);
+}
+
+const wanted = new Set(catalog.achievements.map((ach) => ach.identifier));
+
 for (const ach of catalog.achievements) {
-  const args = [
+  const existing = byIdentifier.get(ach.identifier);
+  if (!existing) {
+    const { status, out } = run([
+      "achievement",
+      "create",
+      "--identifier",
+      ach.identifier,
+      "--title",
+      ach.display_name,
+      "--description",
+      ach.description,
+    ]);
+    console.log(`[Nothing] achievement create ${ach.identifier}`, {
+      ok: status === 0,
+      out: out.slice(0, 240),
+    });
+    continue;
+  }
+  const id = existing._id ?? existing.id;
+  if (!id) continue;
+  const { status, out } = run([
     "achievement",
-    "create",
+    "update",
+    "--id",
+    id,
     "--identifier",
     ach.identifier,
     "--title",
     ach.display_name,
     "--description",
     ach.description,
-  ];
-  const { status, out } = run(args);
-  const skip = /already|exist/i.test(out);
-  console.log(`[Nothing] achievement ${ach.identifier}`, {
+  ]);
+  const skip = /no.?change|unchanged|same/i.test(out) || status === 0;
+  console.log(`[Nothing] achievement update ${ach.identifier}`, {
     ok: status === 0 || skip,
-    skip,
+    id,
     out: out.slice(0, 240),
   });
 }
 
-console.log("[Nothing] catalog sync finished. Leaderboards are created at runtime via getOrCreateLeaderboard.");
-console.log("[Nothing] Stat-triggered unlocks: set thresholds in the portal, or leave them — the game also unlocks by identifier.");
+for (const [identifier, row] of byIdentifier) {
+  if (wanted.has(identifier)) continue;
+  const id = row._id ?? row.id;
+  if (!id) continue;
+  const { status, out } = run(["achievement", "delete", "--id", id, "--force"]);
+  console.log(`[Nothing] achievement delete ${identifier}`, {
+    ok: status === 0,
+    id,
+    out: out.slice(0, 240),
+  });
+}
+
+console.log("[Nothing] catalog sync finished. Old first-kiss achievements are removed when the CLI allows it.");

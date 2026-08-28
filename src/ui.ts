@@ -4,6 +4,18 @@ export function font(weight: number, size: number): string {
   return `${weight} ${size}px ${UI_FONT}`;
 }
 
+export function formatScore(n: number): string {
+  const v = Math.round(n);
+  if (!Number.isFinite(v)) return "0";
+  return v.toLocaleString("en-US");
+}
+
+export function clipName(name: string, max = 14): string {
+  const text = name.trim() || "·";
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(1, max - 1))}…`;
+}
+
 export function strokeText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width = 5): void {
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;

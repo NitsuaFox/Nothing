@@ -1,5 +1,5 @@
 import { log } from "./debug";
-import { clamp, rand } from "./math";
+import { clamp, rand, whiteToRed } from "./math";
 
 export type SkyStar = {
   u: number;
@@ -92,11 +92,11 @@ export class Sky {
     this.time += dt;
   }
 
-  draw(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  draw(ctx: CanvasRenderingContext2D, w: number, h: number, redFlash = 0): void {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    this.drawList(ctx, w, h, this.remnants, 0.55);
-    this.drawList(ctx, w, h, this.born, 1);
+    this.drawList(ctx, w, h, this.remnants, 0.55, redFlash);
+    this.drawList(ctx, w, h, this.born, 1, redFlash);
     ctx.restore();
   }
 
@@ -106,12 +106,13 @@ export class Sky {
     h: number,
     list: SkyStar[],
     mul: number,
+    redFlash: number,
   ): void {
     for (const star of list) {
       const twinkle = 0.65 + 0.35 * Math.sin(this.time * 2.1 + star.phase);
-      ctx.fillStyle = `rgba(255,255,255,${star.alpha * twinkle * mul})`;
+      ctx.fillStyle = whiteToRed(redFlash, star.alpha * twinkle * mul);
       ctx.beginPath();
-      ctx.arc(star.u * w, star.v * h, star.size, 0, Math.PI * 2);
+      ctx.arc(star.u * w, star.v * h, star.size * (1 + redFlash * 0.35), 0, Math.PI * 2);
       ctx.fill();
     }
   }

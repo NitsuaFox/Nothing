@@ -9,13 +9,20 @@ import {
 // the host injected `window.Wavedash` (`wavedash dev` or wavedash.com).
 import {
   ACHIEVEMENT_TITLE,
-  ACHIEVEMENTS,
   BOARDS,
   CLOUD_SAVE_PATH,
-  DISCOVERY_ACHIEVEMENT,
   STATS,
   WAVEDASH_GAME_ID,
 } from "./wavedash-catalog";
+import { earnedAchievements, logAchievementCheck, type AchievementSnap } from "./achievements";
+import { aroundLimit, aroundOffset, NEAR_DOWN, NEAR_UP } from "./leaderboard";
+import {
+  commitUnlock,
+  createUnlockQueue,
+  enqueueUnlock,
+  skipUnlock,
+  tickUnlockQueue,
+} from "./unlock-queue";
 import { createWavedashStub } from "./wavedash-stub";
 
 type Meta = Record<string, string | number>;
@@ -51,8 +58,10 @@ export type PlatformState = {
   userId: string;
   username: string;
   board: BoardRow[];
+  around: BoardRow[];
   myRank: number | null;
   myScore: number | null;
+  submittedRank: number | null;
   lastUnlock: string;
   friends: number;
 };
@@ -84,6 +93,12 @@ type Host = {
     metadata?: Meta,
   ) => Promise<Ok<{ globalRank?: number; submittedRank?: number; score?: number }>>;
   listLeaderboardEntries: (id: string, offset: number, limit: number, friendsOnly?: boolean) => Promise<Ok<unknown>>;
+  listLeaderboardEntriesAroundUser?: (
+    id: string,
+    countAhead: number,
+    countBehind: number,
+    friendsOnly?: boolean,
+  ) => Promise<Ok<unknown>>;
   getMyLeaderboardEntries?: (id: string) => Promise<Ok<unknown>>;
   requestStats?: () => Promise<Ok<boolean> | boolean>;
   getStat?: (id: string) => number;
@@ -111,8 +126,10 @@ export const platform: PlatformState = {
   userId: "",
   username: "",
   board: [],
+  around: [],
   myRank: null,
   myScore: null,
+  submittedRank: null,
   lastUnlock: "",
   friends: 0,
 };
@@ -121,9 +138,9 @@ let host: Host | null = null;
 let hooks: PlatformHooks = {};
 let boardIds: Partial<Record<string, string>> = {};
 const friendIds = new Set<string>();
-let firstLight = false;
 let presenceKey = "";
 let saveTimer = 0;
+const unlocks = createUnlockQueue();
 
 function unwrap<T>(value: Ok<T> | T | null | undefined, fallback: T): T {
   if (value == null) return fallback;
@@ -235,6 +252,55 @@ async function refreshScoreBoard(): Promise<void> {
   }
 }
 
+function mergeAround(rows: BoardRow[]): void {
+  const byId = new Map<string, BoardRow>();
+  for (const row of [...platform.around, ...rows]) {
+    const key = row.userId || `${row.name}:${row.rank}`;
+    const prev = byId.get(key);
+    if (!prev || row.score > prev.score) byId.set(key, row);
+  }
+  platform.around = [...byId.values()].sort((a, b) => a.rank - b.rank || b.score - a.score);
+}
+
+async function refreshAround(rank: number | null): Promise<void> {
+  if (!host) return;
+  const id = await ensureBoard(BOARDS.score);
+  if (!id) return;
+  try {
+    if (host.listLeaderboardEntriesAroundUser) {
+      const res = await host.listLeaderboardEntriesAroundUser(id, NEAR_UP, NEAR_DOWN, false);
+      const rows = asEntries(unwrap(res, [])).map(rowFrom);
+      mergeAround(rows);
+      log("wavedash around user", {
+        ahead: NEAR_UP,
+        behind: NEAR_DOWN,
+        names: rows.map((row) => `${row.rank}:${row.name}:${row.score}`),
+      });
+    }
+  } catch (error) {
+    log("wavedash around-user failed", { error: String(error) });
+  }
+
+  const target = rank && rank > 0 ? rank : platform.submittedRank ?? platform.myRank;
+  if (!target || target <= 0) return;
+  try {
+    const offset = aroundOffset(target);
+    const limit = aroundLimit();
+    const res = await host.listLeaderboardEntries(id, offset, limit, false);
+    const rows = asEntries(unwrap(res, [])).map(rowFrom);
+    mergeAround(rows);
+    log("wavedash around rank", {
+      rank: target,
+      offset,
+      limit,
+      names: rows.map((row) => `${row.rank}:${row.name}:${row.score}`),
+      around: platform.around.map((row) => `${row.rank}:${row.name}`),
+    });
+  } catch (error) {
+    log("wavedash around-rank failed", { error: String(error) });
+  }
+}
+
 function bumpStat(id: string, delta: number): void {
   if (!host?.setStat || !host.getStat) return;
   const next = (host.getStat(id) || 0) + delta;
@@ -255,23 +321,50 @@ function flushStats(): void {
   }
 }
 
-export function unlockAchievement(id: string): void {
+export function unlockAchievement(id: string): boolean {
+  if (!host) return false;
+  try {
+    if (host.getAchievement?.(id)) return false;
+    return enqueueUnlock(unlocks, id);
+  } catch (error) {
+    log("wavedash unlock failed", { id, error: String(error) });
+    return false;
+  }
+}
+
+function fireUnlock(id: string): void {
   if (!host) return;
   try {
-    if (host.getAchievement?.(id)) return;
     const ok = host.setAchievement?.(id, true) ?? false;
-    if (!ok && host.setAchievement) {
-      // some hosts return false when the id is unknown — still log
-    }
     if (host.getAchievement?.(id) || ok) {
       const title = ACHIEVEMENT_TITLE[id] ?? id;
       platform.lastUnlock = title;
-      log("wavedash unlock", { id, title, hosted: platform.hosted });
+      log("wavedash unlock", {
+        id,
+        title,
+        hosted: platform.hosted,
+        fired: unlocks.fired,
+        waiting: unlocks.pending.length,
+      });
       hooks.onUnlock?.(id, title);
+    } else {
+      log("wavedash unlock not confirmed", { id, ok });
     }
   } catch (error) {
     log("wavedash unlock failed", { id, error: String(error) });
   }
+}
+
+/** Drain one queued achievement pop. Hold during bang / splash so they don't stack on those beats. */
+export function pumpUnlocks(dt: number, hold: boolean): void {
+  const ready = tickUnlockQueue(unlocks, dt, hold);
+  if (!ready) return;
+  if (host?.getAchievement?.(ready)) {
+    skipUnlock(unlocks, "already owned");
+    return;
+  }
+  commitUnlock(unlocks);
+  fireUnlock(ready);
 }
 
 async function pullCloud(local: ProgressSnapshot): Promise<void> {
@@ -359,10 +452,6 @@ export function hostMuteState(): boolean | null {
 
 export function onKiss(kind: "perfect" | "good" | "miss"): void {
   if (kind === "perfect") bumpStat(STATS.perfects, 1);
-  if (!firstLight) {
-    firstLight = true;
-    unlockAchievement(ACHIEVEMENTS.firstLight);
-  }
   flushStats();
 }
 
@@ -371,37 +460,37 @@ export function onSilence(): void {
   flushStats();
 }
 
-export function onDiscovery(id: DiscoveryId, foundCount: number): void {
-  unlockAchievement(DISCOVERY_ACHIEVEMENT[id]);
+export function onDiscovery(_id: DiscoveryId, foundCount: number): void {
   maxStat(STATS.discoveries, foundCount);
-  if (foundCount >= 8) unlockAchievement(ACHIEVEMENTS.catalog);
   flushStats();
   persistProgress();
 }
 
 export function onBang(universes: number): void {
-  unlockAchievement(ACHIEVEMENTS.universe);
   maxStat(STATS.universes, universes);
   flushStats();
 }
 
 export function onDescend(depth: number, combo: number): void {
-  if (depth >= 2) unlockAchievement(ACHIEVEMENTS.deeper);
-  if (depth >= 5) unlockAchievement(ACHIEVEMENTS.depth5);
   maxStat(STATS.bestDepth, depth);
   setPresence(`DEPTH ${depth}`, combo > 0 ? `combo ${combo}` : "");
   flushStats();
 }
 
-export function onStreak(mul: number): void {
-  if (mul >= 2) unlockAchievement(ACHIEVEMENTS.streakX2);
-  if (mul >= 3) unlockAchievement(ACHIEVEMENTS.streakX3);
+export function onStreak(_mul: number): void {
   flushStats();
 }
 
 export function onCombo(combo: number): void {
   maxStat(STATS.bestCombo, combo);
-  if (combo >= 25) unlockAchievement(ACHIEVEMENTS.combo25);
+}
+
+/** Unlock any goals this snapshot newly qualifies for. Safe to call often. */
+export function syncAchievements(snap: AchievementSnap): void {
+  const earned = earnedAchievements(snap);
+  const fresh = earned.filter((id) => unlockAchievement(id));
+  if (fresh.length === 0) return;
+  logAchievementCheck(snap, fresh);
 }
 
 export function onRunOver(run: {
@@ -416,12 +505,10 @@ export function onRunOver(run: {
   maxStat(STATS.bestDepth, run.depth);
   maxStat(STATS.bestCombo, run.combo);
   maxStat(STATS.discoveries, run.found);
-  if ((host?.getStat?.(STATS.runs) ?? 0) >= 10) unlockAchievement(ACHIEVEMENTS.runs10);
-  if (run.score >= 1000) unlockAchievement(ACHIEVEMENTS.score1k);
-  if (run.score >= 10000) unlockAchievement(ACHIEVEMENTS.score10k);
   flushStats();
   setPresence("VOID", String(run.score));
   persistProgress();
+  platform.submittedRank = null;
   void submitRun(run);
 }
 
@@ -447,15 +534,25 @@ async function submitRun(run: { score: number; depth: number; combo: number; fou
         submittedRank: data && typeof data === "object" ? (data as { submittedRank?: number }).submittedRank : null,
       });
       if (job.name === BOARDS.score && data && typeof data === "object") {
-        const rank = Number((data as { globalRank?: number }).globalRank);
-        if (Number.isFinite(rank) && rank > 0) platform.myRank = rank;
+        const box = data as { globalRank?: number; submittedRank?: number };
+        const standing = Number(box.globalRank);
+        const submitted = Number(box.submittedRank);
+        if (Number.isFinite(standing) && standing > 0) platform.myRank = standing;
+        if (Number.isFinite(submitted) && submitted > 0) platform.submittedRank = submitted;
+        else if (Number.isFinite(standing) && standing > 0) platform.submittedRank = standing;
         platform.myScore = run.score;
+        log("wavedash score standing", {
+          score: run.score,
+          myRank: platform.myRank,
+          submittedRank: platform.submittedRank,
+        });
       }
     } catch (error) {
       log("wavedash score failed", { board: job.name, error: String(error) });
     }
   }
   await refreshScoreBoard();
+  await refreshAround(platform.submittedRank ?? platform.myRank);
 }
 
 export async function bootWavedash(next: PlatformHooks): Promise<void> {
@@ -513,6 +610,7 @@ export async function bootWavedash(next: PlatformHooks): Promise<void> {
   await ensureBoard(BOARDS.depth);
   await ensureBoard(BOARDS.combo);
   await refreshScoreBoard();
+  await refreshAround(platform.myRank);
 
   const local = hooks.snapshot?.();
   if (local && platform.hosted) await pullCloud(local);

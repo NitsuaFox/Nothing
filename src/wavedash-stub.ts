@@ -29,6 +29,8 @@ const GHOSTS: { name: string; score: number; depth: number; combo: number }[] = 
   { name: "VOID", score: 180, depth: 3, combo: 12 },
   { name: "SPARK", score: 90, depth: 2, combo: 8 },
   { name: "RING", score: 40, depth: 1, combo: 4 },
+  { name: "KISS", score: 24, depth: 1, combo: 3 },
+  { name: "HUSH", score: 12, depth: 1, combo: 2 },
 ];
 
 type StubSave = {
@@ -72,16 +74,24 @@ function rankBoard(entries: StubEntry[]): StubEntry[] {
 }
 
 function seed(board: Board): Board {
-  if (board.entries.length > 0) return board;
-  board.entries = rankBoard(
-    GHOSTS.map((ghost, i) => ({
-      userId: `ghost-${ghost.name.toLowerCase()}`,
+  const ids = new Set(board.entries.map((entry) => entry.userId));
+  let added = 0;
+  for (const ghost of GHOSTS) {
+    const userId = `ghost-${ghost.name.toLowerCase()}`;
+    if (ids.has(userId)) continue;
+    board.entries.push({
+      userId,
       username: ghost.name,
       score: ghost.score,
-      globalRank: i + 1,
+      globalRank: 0,
       metadata: { depth: ghost.depth, combo: ghost.combo },
-    })),
-  );
+    });
+    ids.add(userId);
+    added += 1;
+  }
+  if (added > 0 || board.entries.some((entry) => !entry.globalRank)) {
+    board.entries = rankBoard(board.entries);
+  }
   return board;
 }
 
@@ -105,9 +115,11 @@ export function createWavedashStub() {
 
   const board = (name: string): Board => {
     if (!save.boards[name]) {
-      save.boards[name] = seed({ id: name, name, entries: [] });
-      persist(save);
+      save.boards[name] = { id: name, name, entries: [] };
     }
+    const before = save.boards[name].entries.length;
+    seed(save.boards[name]);
+    if (save.boards[name].entries.length !== before) persist(save);
     return save.boards[name];
   };
 
@@ -200,6 +212,23 @@ export function createWavedashStub() {
     async listLeaderboardEntries(id: string, offset: number, limit: number) {
       const b = save.boards[id] ?? board(id);
       const page = rankBoard(b.entries).slice(offset, offset + limit);
+      log("wavedash stub list", { id, offset, limit, names: page.map((e) => `${e.globalRank}:${e.username}`) });
+      return ok(page);
+    },
+    async listLeaderboardEntriesAroundUser(id: string, countAhead: number, countBehind: number) {
+      const b = save.boards[id] ?? board(id);
+      const ranked = rankBoard(b.entries);
+      const meIdx = ranked.findIndex((e) => e.userId === LOCAL_USER.userId);
+      const start = meIdx < 0 ? 0 : Math.max(0, meIdx - countAhead);
+      const end = meIdx < 0 ? countAhead + 1 + countBehind : meIdx + 1 + countBehind;
+      const page = ranked.slice(start, end);
+      log("wavedash stub around-user", {
+        id,
+        countAhead,
+        countBehind,
+        meIdx,
+        names: page.map((e) => `${e.globalRank}:${e.username}:${e.score}`),
+      });
       return ok(page);
     },
     async getMyLeaderboardEntries(id: string) {

@@ -1,5 +1,3 @@
-import type { DiscoveryId } from "./progress";
-
 /** Wavedash project id from the Developer Portal. */
 export const WAVEDASH_GAME_ID = "j97b4r6g42zdxc5v540d2cn1gs8d8r69";
 
@@ -24,57 +22,43 @@ export const STATS = {
   discoveries: "DISCOVERIES",
 } as const;
 
+/** Proper goals — none of these fire in the first ten seconds of a run. */
 export const ACHIEVEMENTS = {
-  firstLight: "FIRST_LIGHT",
-  spark: "SPARK",
-  star: "STAR",
-  giant: "GIANT",
-  singularity: "SINGULARITY",
   universe: "A_UNIVERSE",
-  silence: "SILENCE",
-  voidTaken: "VOID_TAKEN",
-  resonance: "RESONANCE",
-  streakX2: "STREAK_X2",
-  streakX3: "STREAK_X3",
   deeper: "DEEPER",
-  depth5: "DEPTH_5",
-  combo25: "COMBO_25",
+  faster: "FASTER",
+  voids: "VOIDS",
+  tight: "TIGHT",
+  depth10: "DEPTH_10",
+  combo50: "COMBO_50",
+  combo100: "COMBO_100",
+  score100k: "SCORE_100K",
+  score1m: "SCORE_1M",
+  still: "STILL",
+  kisses: "KISSES_100",
+  carry: "CARRY",
+  unbroken: "UNBROKEN",
   catalog: "CATALOG",
   runs10: "RUNS_10",
-  score1k: "SCORE_1K",
-  score10k: "SCORE_10K",
 } as const;
 
 export type AchievementId = (typeof ACHIEVEMENTS)[keyof typeof ACHIEVEMENTS];
 
 export const ACHIEVEMENT_TITLE: Record<string, string> = {
-  FIRST_LIGHT: "FIRST LIGHT",
-  SPARK: "SPARK",
-  STAR: "STAR",
-  GIANT: "GIANT",
-  SINGULARITY: "SINGULARITY",
   A_UNIVERSE: "A UNIVERSE",
-  SILENCE: "SILENCE",
-  VOID_TAKEN: "VOID",
-  RESONANCE: "RESONANCE",
-  STREAK_X2: "×2",
-  STREAK_X3: "×3",
   DEEPER: "DEEPER",
-  DEPTH_5: "FIVE DEEP",
-  COMBO_25: "25",
+  FASTER: "FASTER",
+  VOIDS: "VOIDS",
+  TIGHT: "TIGHT",
+  DEPTH_10: "TEN DEEP",
+  COMBO_50: "FIFTY",
+  COMBO_100: "HUNDRED",
+  SCORE_100K: "A HUNDRED THOUSAND",
+  SCORE_1M: "A MILLION",
+  STILL: "STILL",
+  KISSES_100: "A HUNDRED KISSES",
+  CARRY: "CARRY",
+  UNBROKEN: "UNBROKEN",
   CATALOG: "CATALOG",
   RUNS_10: "TEN VOIDS",
-  SCORE_1K: "A THOUSAND",
-  SCORE_10K: "TEN THOUSAND",
-};
-
-export const DISCOVERY_ACHIEVEMENT: Record<DiscoveryId, AchievementId> = {
-  spark: ACHIEVEMENTS.spark,
-  star: ACHIEVEMENTS.star,
-  giant: ACHIEVEMENTS.giant,
-  singularity: ACHIEVEMENTS.singularity,
-  universe: ACHIEVEMENTS.universe,
-  silence: ACHIEVEMENTS.silence,
-  voidtaken: ACHIEVEMENTS.voidTaken,
-  resonance: ACHIEVEMENTS.resonance,
 };

@@ -1,4 +1,4 @@
-import { lerp } from "./math";
+import { lerp, whiteToRed } from "./math";
 import type { Phase } from "./types";
 
 export function baseOrbRadius(mass: number): number {
@@ -47,6 +47,7 @@ export function drawOrb(
   squashX: number,
   squashY: number,
   densify: number,
+  redFlash = 0,
 ): void {
   const r = Math.max(1.4, radius * breathe);
   ctx.save();
@@ -56,8 +57,8 @@ export function drawOrb(
   ctx.globalCompositeOperation = "lighter";
   const glowR = r * (2.8 + densify * 4);
   const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, glowR);
-  glow.addColorStop(0, `rgba(255,255,255,${0.55 + densify * 0.35})`);
-  glow.addColorStop(0.22, `rgba(255,255,255,${0.16 + densify * 0.2})`);
+  glow.addColorStop(0, whiteToRed(redFlash, 0.55 + densify * 0.35));
+  glow.addColorStop(0.22, whiteToRed(redFlash, 0.16 + densify * 0.2));
   glow.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = glow;
   ctx.beginPath();
@@ -66,7 +67,7 @@ export function drawOrb(
 
   if (phase === "star" || phase === "giant" || phase === "singularity") {
     const rays = phase === "singularity" ? 14 : phase === "giant" ? 10 : 7;
-    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.strokeStyle = whiteToRed(redFlash, 0.22 + redFlash * 0.45);
     ctx.lineWidth = 1;
     for (let i = 0; i < rays; i++) {
       const a = (i / rays) * Math.PI * 2;
@@ -77,7 +78,7 @@ export function drawOrb(
     }
   }
 
-  if (phase === "singularity") {
+  if (phase === "singularity" && redFlash < 0.25) {
     ctx.fillStyle = "rgba(255,80,80,0.35)";
     ctx.beginPath();
     ctx.arc(-1.1, 0, r, 0, Math.PI * 2);
@@ -89,7 +90,7 @@ export function drawOrb(
   }
 
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = redFlash > 0.01 ? whiteToRed(redFlash, 1) : "#fff";
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
@@ -105,28 +106,32 @@ export function drawPulseRing(
   alpha: number,
   kissHint: boolean,
   kind: "create" | "void" = "create",
+  redFlash = 0,
 ): void {
   if (alpha <= 0.01 || radius <= 0.5) return;
   ctx.save();
+  const stroke = whiteToRed(redFlash, alpha);
+  const strokeSoft = whiteToRed(redFlash, alpha * 0.55);
+  const strokeInner = whiteToRed(redFlash, alpha * 0.28);
   if (kind === "void") {
     ctx.setLineDash([5, 7]);
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.55})`;
-    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = strokeSoft;
+    ctx.lineWidth = 1.25 + redFlash * 1.6;
     ctx.stroke();
     if (radius > 8) {
       ctx.beginPath();
       ctx.arc(x, y, Math.max(2, radius - 6), 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.28})`;
+      ctx.strokeStyle = strokeInner;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
   } else {
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-    ctx.lineWidth = kissHint ? 3.4 : 1.6;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = (kissHint ? 3.4 : 1.6) + redFlash * 2.2;
     ctx.stroke();
   }
   ctx.restore();
