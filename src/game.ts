@@ -33,6 +33,7 @@ import { Sky } from "./sky";
 import {
   EMPTY_SAFE,
   drawHudDebug,
+  hudSnapshot,
   layoutHud,
   logHudLayout,
   type HudLayout,
@@ -372,6 +373,39 @@ export class Game {
       best: this.best,
       bestDepth: this.bestDepth,
       runs: this.runsPlayed,
+    });
+  }
+
+  /** Debug: jump to a play HUD. `window.nothing.debugShowHud()` or `?demohud=1`. */
+  debugShowHud(): void {
+    this.skippedSplash = true;
+    this.skipFade = 1;
+    this.intro = menuLook();
+    this.mode = "play";
+    this.started = true;
+    this.awaitingFirstPulse = false;
+    this.universeFresh = false;
+    this.menuPromptAlpha = 0;
+    this.hudAlpha = 1;
+    this.hudRevealed = true;
+    this.hudHoldUntilPulse = false;
+    this.hudRevealAt = -10;
+    this.score = Math.max(this.score, 12800);
+    this.best = Math.max(this.best, 20000);
+    this.combo = Math.max(this.combo, 16);
+    this.peakCombo = Math.max(this.peakCombo, this.combo);
+    this.perfectStreak = Math.max(this.perfectStreak, 8);
+    this.depth = Math.max(this.depth, 3);
+    this.mass = Math.max(this.mass, 6);
+    this.hearts = 2;
+    this.whisper = "TIGHT";
+    this.whisperLife = 8;
+    log("hud debug show", {
+      dump: "copy(window.nothing.hud)",
+      score: this.score,
+      combo: this.combo,
+      depth: this.depth,
+      ...hudSnapshot(this.hud),
     });
   }
 

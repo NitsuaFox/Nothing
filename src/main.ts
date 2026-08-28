@@ -88,10 +88,14 @@ void bootWavedash({
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothing = game;
 (window as unknown as { nothing: Game; nothingPlatform: typeof platform }).nothingPlatform = platform;
 log("boot", {
-  debug: "window.nothing (Game, endRun) · window.nothingPlatform",
+  debug: "window.nothing (Game, endRun, debugShowHud) · window.nothingPlatform · ?demohud=1&huddebug=1",
   touch: "ontouchstart" in window,
   coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
 });
+
+if (/(?:^|[?&])demohud=1(?:&|$)/.test(window.location.search)) {
+  game.debugShowHud();
+}
 
 let last = performance.now();
 function frame(now: number): void {
